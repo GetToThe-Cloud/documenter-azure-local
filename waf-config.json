@@ -1,0 +1,268 @@
+{
+  "version": "1.0.0",
+  "description": "Azure Local (Azure Stack HCI) Well-Architected Framework Assessment Configuration",
+  "lastUpdated": "2026-03-09",
+  "pillars": {
+    "reliability": {
+      "name": "Reliability",
+      "order": 1,
+      "description": "Ensuring system resilience and availability",
+      "assessment": "Evaluation of high availability, redundancy, and failover capabilities",
+      "checks": [
+        {
+          "id": "rel-001",
+          "name": "Multi-node clusters for high availability",
+          "description": "Clusters with 2+ nodes provide redundancy and high availability",
+          "weight": 2,
+          "condition": "multiNodeClusters >= totalClusters",
+          "warningCondition": "multiNodeClusters > 0 && multiNodeClusters < totalClusters",
+          "dataPoints": ["totalClusters", "multiNodeClusters"],
+          "passMessage": "✓ All clusters ({multiNodeClusters} of {totalClusters}) have 2+ nodes for high availability",
+          "warningMessage": "⚠ {multiNodeClusters} of {totalClusters} clusters have 2+ nodes - single-node clusters lack redundancy",
+          "failMessage": "✗ No multi-node clusters detected - deploy at least 2 nodes per cluster for HA",
+          "recommendation": "Deploy clusters with at least 2-3 nodes for high availability and automatic failover capabilities"
+        },
+        {
+          "id": "rel-002",
+          "name": "Node connectivity status",
+          "description": "All nodes should maintain connected status for optimal reliability",
+          "weight": 2,
+          "condition": "connectedNodes == totalNodes",
+          "warningCondition": "connectedNodes >= totalNodes * 0.8",
+          "dataPoints": ["totalNodes", "connectedNodes"],
+          "passMessage": "✓ All nodes ({connectedNodes} of {totalNodes}) are connected and healthy",
+          "warningMessage": "⚠ {connectedNodes} of {totalNodes} nodes connected - investigate disconnected nodes",
+          "failMessage": "✗ Only {connectedNodes} of {totalNodes} nodes connected - critical availability issue",
+          "recommendation": "Investigate and resolve connectivity issues with disconnected nodes immediately"
+        },
+        {
+          "id": "rel-003",
+          "name": "Workload distribution",
+          "description": "VMs should be distributed evenly across nodes for better resilience",
+          "weight": 1,
+          "condition": "vmDistributionBalanced == true",
+          "dataPoints": ["vmDistributionBalanced"],
+          "passMessage": "✓ Virtual machines are evenly distributed across nodes for optimal resilience",
+          "failMessage": "⚠ Unbalanced VM distribution - consider redistributing workloads for better resilience",
+          "recommendation": "Rebalance VM placement across nodes to ensure even resource utilization and failover capacity"
+        }
+      ]
+    },
+    "security": {
+      "name": "Security",
+      "order": 2,
+      "description": "Protection against security threats and maintaining compliance",
+      "assessment": "Evaluation of security controls, updates, and compliance measures",
+      "checks": [
+        {
+          "id": "sec-001",
+          "name": "System updates applied",
+          "description": "Nodes should have latest security updates installed",
+          "weight": 2,
+          "condition": "upToDateNodes >= totalNodes * 0.9",
+          "warningCondition": "upToDateNodes >= totalNodes * 0.7",
+          "dataPoints": ["totalNodes", "upToDateNodes"],
+          "passMessage": "✓ {upToDateNodes} of {totalNodes} nodes are up to date with latest patches",
+          "warningMessage": "⚠ {upToDateNodes} of {totalNodes} nodes up to date - apply pending updates",
+          "failMessage": "✗ {upToDateNodes} of {totalNodes} nodes up to date - critical security risk",
+          "recommendation": "Apply available security updates to all nodes following your maintenance schedule"
+        },
+        {
+          "id": "sec-002",
+          "name": "Arc monitoring agents deployed",
+          "description": "Monitoring agents enable security visibility and compliance",
+          "weight": 1,
+          "condition": "nodesWithAgents == totalNodes",
+          "warningCondition": "nodesWithAgents >= totalNodes * 0.8",
+          "dataPoints": ["totalNodes", "nodesWithAgents"],
+          "passMessage": "✓ All nodes ({nodesWithAgents} of {totalNodes}) have monitoring agents deployed",
+          "warningMessage": "⚠ {nodesWithAgents} of {totalNodes} nodes have monitoring agents - deploy to all nodes",
+          "failMessage": "✗ {nodesWithAgents} of {totalNodes} nodes have monitoring agents - limited visibility",
+          "recommendation": "Deploy Arc monitoring agents to all nodes for comprehensive security visibility"
+        },
+        {
+          "id": "sec-003",
+          "name": "Arc extensions deployed",
+          "description": "Arc extensions enable security, monitoring, and management capabilities",
+          "weight": 1,
+          "condition": "nodesWithExtensions > 0",
+          "dataPoints": ["nodesWithExtensions", "totalNodes"],
+          "passMessage": "✓ {nodesWithExtensions} nodes have Arc extensions deployed for enhanced management",
+          "failMessage": "⚠ Limited Arc extensions deployment - consider adding security and monitoring extensions",
+          "recommendation": "Deploy Arc extensions for Azure Monitor, Defender, and Update Management"
+        }
+      ]
+    },
+    "costOptimization": {
+      "name": "Cost Optimization",
+      "order": 3,
+      "description": "Managing costs while maximizing infrastructure value",
+      "assessment": "Evaluation of licensing efficiency and cost optimization opportunities",
+      "checks": [
+        {
+          "id": "cost-001",
+          "name": "Azure Hybrid Benefit utilization",
+          "description": "Hybrid Benefit provides FREE licensing ($10/core saved per month)",
+          "weight": 3,
+          "condition": "nodesWithHybridBenefit >= totalNodes",
+          "warningCondition": "nodesWithHybridBenefit >= totalNodes * 0.5",
+          "dataPoints": ["totalNodes", "nodesWithHybridBenefit", "potentialMonthlySavings"],
+          "passMessage": "✓ All nodes ({nodesWithHybridBenefit} of {totalNodes}) use Azure Hybrid Benefit - maximizing cost savings",
+          "warningMessage": "⚠ {nodesWithHybridBenefit} of {totalNodes} nodes use Hybrid Benefit - potential savings: ${potentialMonthlySavings}/month",
+          "failMessage": "✗ Only {nodesWithHybridBenefit} of {totalNodes} nodes use Hybrid Benefit - enable to save ${potentialMonthlySavings}/month",
+          "recommendation": "Enable Azure Hybrid Benefit on all eligible nodes to eliminate per-core licensing costs"
+        },
+        {
+          "id": "cost-002",
+          "name": "Efficient resource utilization",
+          "description": "Resource allocation should match workload requirements",
+          "weight": 1,
+          "condition": "avgCoresPerNode >= 16",
+          "dataPoints": ["avgCoresPerNode"],
+          "passMessage": "✓ Average {avgCoresPerNode} cores per node supports good workload density",
+          "warningMessage": "⚠ Average {avgCoresPerNode} cores per node - consider workload consolidation",
+          "recommendation": "Optimize core count per node based on workload density and performance requirements"
+        },
+        {
+          "id": "cost-003",
+          "name": "VM distribution and consolidation",
+          "description": "Balanced VM distribution enables efficient resource usage",
+          "weight": 1,
+          "condition": "vmDistributionBalanced == true",
+          "dataPoints": ["vmDistributionBalanced"],
+          "passMessage": "✓ Balanced VM distribution enables efficient resource utilization",
+          "failMessage": "⚠ Unbalanced VM distribution - consolidation may reduce costs",
+          "recommendation": "Rebalance workloads to maximize resource efficiency and potentially reduce node count"
+        }
+      ]
+    },
+    "performance": {
+      "name": "Performance Efficiency",
+      "order": 4,
+      "description": "Maintaining optimal system performance and scalability",
+      "assessment": "Evaluation of resource capacity and performance optimization",
+      "checks": [
+        {
+          "id": "perf-001",
+          "name": "Adequate memory per node",
+          "description": "Nodes should have sufficient RAM for workload demands",
+          "weight": 2,
+          "condition": "nodesWithSufficientMemory == totalNodes",
+          "warningCondition": "nodesWithSufficientMemory >= totalNodes * 0.8",
+          "dataPoints": ["totalNodes", "nodesWithSufficientMemory"],
+          "passMessage": "✓ All nodes ({nodesWithSufficientMemory} of {totalNodes}) have 64GB+ RAM for adequate performance",
+          "warningMessage": "⚠ {nodesWithSufficientMemory} of {totalNodes} nodes have 64GB+ RAM - consider memory upgrades",
+          "failMessage": "✗ {nodesWithSufficientMemory} of {totalNodes} nodes have 64GB+ RAM - insufficient for production workloads",
+          "recommendation": "Ensure nodes have at least 64GB RAM for standard workloads, 128GB+ for high-density scenarios"
+        },
+        {
+          "id": "perf-002",
+          "name": "Sufficient CPU cores",
+          "description": "Adequate CPU resources for workload processing",
+          "weight": 2,
+          "condition": "nodesWithMultipleCores == totalNodes",
+          "warningCondition": "nodesWithMultipleCores >= totalNodes * 0.8",
+          "dataPoints": ["totalNodes", "nodesWithMultipleCores"],
+          "passMessage": "✓ All nodes ({nodesWithMultipleCores} of {totalNodes}) have 16+ cores for good compute capacity",
+          "warningMessage": "⚠ {nodesWithMultipleCores} of {totalNodes} nodes have 16+ cores - assess capacity",
+          "failMessage": "✗ {nodesWithMultipleCores} of {totalNodes} nodes have 16+ cores - may limit workload capacity",
+          "recommendation": "Deploy nodes with at least 16 physical cores for standard workloads"
+        },
+        {
+          "id": "perf-003",
+          "name": "Storage infrastructure",
+          "description": "Adequate storage paths for performance and capacity",
+          "weight": 1,
+          "condition": "hasStoragePaths == true",
+          "dataPoints": ["totalStoragePaths"],
+          "passMessage": "✓ {totalStoragePaths} storage path(s) configured for VM storage",
+          "warningMessage": "⚠ Limited storage paths - ensure adequate capacity and performance",
+          "failMessage": "✗ No storage paths configured",
+          "recommendation": "Configure multiple storage paths for optimal performance and capacity"
+        }
+      ]
+    },
+    "operationalExcellence": {
+      "name": "Operational Excellence",
+      "order": 5,
+      "description": "Operations processes for monitoring, management, and automation",
+      "assessment": "Evaluation of operational practices and management infrastructure",
+      "checks": [
+        {
+          "id": "ops-001",
+          "name": "Software version tracking",
+          "description": "Cluster software versions should be documented and tracked",
+          "weight": 1,
+          "condition": "clustersWithVersion == totalClusters",
+          "warningCondition": "clustersWithVersion > 0",
+          "dataPoints": ["totalClusters", "clustersWithVersion"],
+          "passMessage": "✓ All clusters ({clustersWithVersion} of {totalClusters}) report software version for lifecycle management",
+          "warningMessage": "⚠ {clustersWithVersion} of {totalClusters} clusters report version - improve tracking",
+          "failMessage": "✗ No cluster version information available - implement version tracking",
+          "recommendation": "Maintain accurate software version tracking for lifecycle and update management"
+        },
+        {
+          "id": "ops-002",
+          "name": "Monitoring agents deployed",
+          "description": "Monitoring capabilities for operational visibility",
+          "weight": 2,
+          "condition": "nodesWithMonitoring == totalNodes",
+          "warningCondition": "nodesWithMonitoring >= totalNodes * 0.8",
+          "dataPoints": ["totalNodes", "nodesWithMonitoring"],
+          "passMessage": "✓ All nodes ({nodesWithMonitoring} of {totalNodes}) have monitoring agents for operational visibility",
+          "warningMessage": "⚠ {nodesWithMonitoring} of {totalNodes} nodes have monitoring - deploy to all nodes",
+          "failMessage": "✗ {nodesWithMonitoring} of {totalNodes} nodes have monitoring - limited operational visibility",
+          "recommendation": "Deploy monitoring agents to all nodes for comprehensive operational insights"
+        },
+        {
+          "id": "ops-003",
+          "name": "Arc Resource Bridge deployment",
+          "description": "Arc Resource Bridge enables advanced Azure management capabilities",
+          "weight": 1,
+          "condition": "hasArcBridges == true",
+          "dataPoints": ["totalArcBridges"],
+          "passMessage": "✓ {totalArcBridges} Arc Resource Bridge(s) deployed for Azure integration",
+          "warningMessage": "⚠ No Arc Resource Bridges - limited Azure management capabilities",
+          "recommendation": "Deploy Arc Resource Bridge to enable VM lifecycle management from Azure portal"
+        },
+        {
+          "id": "ops-004",
+          "name": "Logical Network configuration",
+          "description": "Logical networks enable VM connectivity and network management",
+          "weight": 1,
+          "condition": "hasLogicalNetworks == true",
+          "dataPoints": ["totalLogicalNetworks"],
+          "passMessage": "✓ {totalLogicalNetworks} logical network(s) configured for VM connectivity",
+          "failMessage": "⚠ No logical networks configured - VMs may have limited connectivity",
+          "recommendation": "Configure logical networks to provide proper network connectivity for VMs"
+        },
+        {
+          "id": "ops-005",
+          "name": "Custom Locations for workload placement",
+          "description": "Custom Locations enable Azure-native resource deployment",
+          "weight": 1,
+          "condition": "hasCustomLocations == true",
+          "dataPoints": ["totalCustomLocations"],
+          "passMessage": "✓ {totalCustomLocations} Custom Location(s) enable Azure-native resource deployment",
+          "warningMessage": "⚠ No Custom Locations - limited Azure integration",
+          "recommendation": "Create Custom Locations to enable Azure resource deployment to your Azure Local infrastructure"
+        }
+      ]
+    }
+  },
+  "scoring": {
+    "method": "weighted",
+    "description": "Each check has a weight (1-3) representing its importance. Score = (passed weights + warning weights * 0.5) / total weights * 100",
+    "thresholds": {
+      "excellent": 80,
+      "good": 60,
+      "needsImprovement": 40
+    },
+    "messages": {
+      "excellent": "✅ Excellent! Your Azure Local deployment follows most Well-Architected Framework best practices.",
+      "good": "⚠️ Good! Your deployment follows many best practices, but there are opportunities for improvement.",
+      "needsImprovement": "❌ Your deployment needs improvement. Address the failed checks to align with best practices.",
+      "poor": "❌ Critical issues detected. Immediate action required to align with Well-Architected Framework principles."
+    }
+  }
+}

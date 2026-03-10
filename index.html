@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Local Inventory</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🖥️ Azure Local Inventory</h1>
+                <div class="header-actions">
+                    <span id="lastUpdate" class="last-update"></span>
+                    <button id="refreshBtn" class="btn btn-secondary" onclick="refreshInventory()">
+                        <span class="icon">🔄</span> Refresh
+                    </button>
+                    <button id="exportBtn" class="btn btn-primary" onclick="exportToPDF()">
+                        <span class="icon">📄</span> Export PDF
+                    </button>
+                </div>
+            </div>
+            <div id="authStatus" class="auth-status"></div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Navigation Sidebar -->
+            <aside class="sidebar">
+                <nav class="nav-menu">
+                    <h3 class="nav-title">Categories</h3>
+                    <ul class="nav-list">
+                        <li><a href="#" onclick="showSection('overview')" class="nav-link active" data-section="overview">
+                            <span class="icon">📊</span> Overview
+                        </a></li>
+                        <li><a href="#" onclick="showSection('waf')" class="nav-link" data-section="waf">
+                            <span class="icon">✅</span> WAF Assessment
+                        </a></li>
+                        <li><a href="#" onclick="showSection('costanalysis')" class="nav-link" data-section="costanalysis">
+                            <span class="icon">💰</span> Cost Analysis
+                        </a></li>
+                        <li><a href="#" onclick="showSection('clusters')" class="nav-link" data-section="clusters">
+                            <span class="icon">🔷</span> Clusters
+                        </a></li>
+                        <li><a href="#" onclick="showSection('nodes')" class="nav-link" data-section="nodes">
+                            <span class="icon">🖥️</span> Nodes
+                        </a></li>
+                        <li><a href="#" onclick="showSection('versions')" class="nav-link" data-section="versions">
+                            <span class="icon">📦</span> Agent & Software Versions
+                        </a></li>
+                        <li><a href="#" onclick="showSection('networks')" class="nav-link" data-section="networks">
+                            <span class="icon">🌐</span> Logical Networks
+                        </a></li>
+                        <li><a href="#" onclick="showSection('storagepaths')" class="nav-link" data-section="storagepaths">
+                            <span class="icon">💾</span> Storage Paths
+                        </a></li>
+                        <li><a href="#" onclick="showSection('customlocations')" class="nav-link" data-section="customlocations">
+                            <span class="icon">🌐</span> Custom Locations
+                        </a></li>
+                        <li><a href="#" onclick="showSection('arcbridges')" class="nav-link" data-section="arcbridges">
+                            <span class="icon">🌉</span> Arc Resource Bridges
+                        </a></li>
+                        <li><a href="#" onclick="showSection('arcgateways')" class="nav-link" data-section="arcgateways">
+                            <span class="icon">🚪</span> Arc Gateways
+                        </a></li>
+                        <li><a href="#" onclick="showSection('licenses')" class="nav-link" data-section="licenses">
+                            <span class="icon">📜</span> Licenses
+                        </a></li>
+                        <li><a href="#" onclick="showSection('images')" class="nav-link" data-section="images">
+                            <span class="icon">💿</span> Images
+                        </a></li>
+                        <li><a href="#" onclick="showSection('virtualmachines')" class="nav-link" data-section="virtualmachines">
+                            <span class="icon">💻</span> Virtual Machines
+                        </a></li>
+                    </ul>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content">
+                <!-- Authentication Required -->
+                <div id="authRequired" class="auth-required" style="display: none;">
+                    <div class="auth-card">
+                        <h2>🔐 Azure Authentication</h2>
+                        <p>Authentication is being requested automatically.</p>
+                        <p>Please check your terminal or browser for the device code login prompt.</p>
+                        <button onclick="authenticateAzure()" class="btn btn-primary btn-large">
+                            Retry Sign in
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Overview Section -->
+                <section id="overview" class="content-section active">
+                    <h2>📊 Overview</h2>
+                    <div class="info-banner">
+                        <strong>About Azure Local:</strong>
+                        <p id="overviewExplanation">Loading...</p>
+                    </div>
+                    <div class="summary-cards">
+                        <div class="card">
+                            <div class="card-icon">🔷</div>
+                            <div class="card-content">
+                                <h3 id="totalClusters">0</h3>
+                                <p>Clusters</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🖥️</div>
+                            <div class="card-content">
+                                <h3 id="totalNodes">0</h3>
+                                <p>Nodes</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🌐</div>
+                            <div class="card-content">
+                                <h3 id="totalNetworks">0</h3>
+                                <p>Logical Networks</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">💿</div>
+                            <div class="card-content">
+                                <h3 id="totalImages">0</h3>
+                                <p>Images</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">�</div>
+                            <div class="card-content">
+                                <h3 id="totalStoragePaths">0</h3>
+                                <p>Storage Paths</p>
+                            </div>
+                        </div>
+                        <div class="card">                            <div class="card-icon">🌐</div>
+                            <div class="card-content">
+                                <h3 id="totalCustomLocations">0</h3>
+                                <p>Custom Locations</p>
+                            </div>
+                        </div>                        <div class="card">
+                            <div class="card-icon">🌉</div>
+                            <div class="card-content">
+                                <h3 id="totalArcResourceBridges">0</h3>
+                                <p>Arc Resource Bridges</p>
+                            </div>                        </div>                        <div class="card">
+                            <div class="card-icon">🚪</div>
+                            <div class="card-content">
+                                <h3 id="totalArcGateways">0</h3>
+                                <p>Arc Gateways</p>
+                            </div>                        </div>                        <div class="card">                            <div class="card-icon">�💻</div>
+                            <div class="card-content">                                <h3 id="totalLicenses">0</h3>
+                                <p>Licensed Machines</p>
+                            </div>                        </div>                        <div class="card">                            <div class="card-icon">💻</div>
+                            <div class="card-content">                                <h3 id="totalVMs">0</h3>
+                                <p>Virtual Machines</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h3>Cluster Status Distribution</h3>
+                    <div id="clusterStatusChart" class="chart-container"></div>
+                    
+                    <h3>Node Status Distribution</h3>
+                    <div id="nodeStatusChart" class="chart-container"></div>
+                    
+                    <h3>Virtual Machines by Cluster</h3>
+                    <div id="vmsByClusterChart" class="chart-container"></div>
+                </section>
+
+                <!-- WAF Assessment Section -->
+                <section id="waf" class="content-section">
+                    <h2>✅ Well-Architected Framework Assessment</h2>
+                    <div class="info-banner">
+                        <strong>Azure Well-Architected Framework:</strong>
+                        <p>Assessment of your Azure Local deployment against Microsoft's <a href="https://learn.microsoft.com/en-us/azure/well-architected/service-guides/azure-local" target="_blank">Well-Architected Framework best practices</a>.</p>
+                    </div>
+                    
+                    <div class="waf-score-card">
+                        <div class="score-circle">
+                            <div class="score-value" id="wafScore">-</div>
+                            <div class="score-label">WAF Score</div>
+                        </div>
+                        <div class="score-details">
+                            <h3>Assessment Summary</h3>
+                            <div id="wafSummary">Calculating...</div>
+                        </div>
+                    </div>
+
+                    <div class="waf-categories">
+                        <div class="waf-category">
+                            <h3>🛡️ Reliability</h3>
+                            <div id="wafReliability" class="waf-checks"></div>
+                        </div>
+                        <div class="waf-category">
+                            <h3>🔒 Security</h3>
+                            <div id="wafSecurity" class="waf-checks"></div>
+                        </div>
+                        <div class="waf-category">
+                            <h3>💰 Cost Optimization</h3>
+                            <div id="wafCost" class="waf-checks"></div>
+                        </div>
+                        <div class="waf-category">
+                            <h3>⚡ Performance</h3>
+                            <div id="wafPerformance" class="waf-checks"></div>
+                        </div>
+                        <div class="waf-category">
+                            <h3>🎯 Operational Excellence</h3>
+                            <div id="wafOperational" class="waf-checks"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Cost Analysis Section -->
+                <section id="costanalysis" class="content-section">
+                    <h2>💰 Cost Analysis & Azure Hybrid Benefit</h2>
+                    <div class="info-banner">
+                        <strong>Azure Local Pricing & Savings:</strong>
+                        <p>Azure Local costs $10 USD per physical core per month. With <strong>Azure Hybrid Benefit</strong>, you can use existing Windows Server licenses with Software Assurance to run Azure Local at <strong>NO additional software cost</strong>. <a href="https://azure.microsoft.com/en-us/pricing/details/azure-local/" target="_blank">Learn more</a></p>
+                    </div>
+                    <div id="costAnalysisSummary" class="cost-summary"></div>
+                </section>
+
+                <!-- Clusters Section -->
+                <section id="clusters" class="content-section">
+                    <h2>🔷 Clusters</h2>
+                    <div class="info-banner">
+                        <strong>What are Clusters?</strong>
+                        <p id="clustersExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="clusterSearch" placeholder="Search clusters..." onkeyup="filterTable('clusterSearch', 'clustersTable')">
+                    </div>
+                    <div id="clustersList" class="data-list"></div>
+                </section>
+
+                <!-- Nodes Section -->
+                <section id="nodes" class="content-section">
+                    <h2>🖥️ Nodes</h2>
+                    <div class="info-banner">
+                        <strong>What are Nodes?</strong>
+                        <p id="nodesExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="nodeSearch" placeholder="Search nodes..." onkeyup="filterTable('nodeSearch', 'nodesTable')">
+                    </div>
+                    <div id="nodesList" class="data-list"></div>
+                </section>
+
+                <!-- Versions Section -->
+                <section id="versions" class="content-section">
+                    <h2>📦 Agent & Software Versions</h2>
+                    <div class="info-banner">
+                        <strong>About Agent & Software Versions:</strong>
+                        <p id="versionsExplanation">Loading...</p>
+                    </div>
+                    
+                    <h3>Agent Versions</h3>
+                    <div id="agentVersionsList" class="data-list"></div>
+                    
+                    <h3>Software Versions</h3>
+                    <div id="softwareVersionsList" class="data-list"></div>
+                </section>
+
+                <!-- Networks Section -->
+                <section id="networks" class="content-section">
+                    <h2>🌐 Logical Networks</h2>
+                    <div class="info-banner">
+                        <strong>What are Logical Networks?</strong>
+                        <p id="networksExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="networkSearch" placeholder="Search networks..." onkeyup="filterTable('networkSearch', 'networksTable')">
+                    </div>
+                    <div id="networksList" class="data-list"></div>
+                </section>
+
+                <!-- Images Section -->
+                <section id="images" class="content-section">
+                    <h2>💿 Images</h2>
+                    <div class="info-banner">
+                        <strong>What are Images?</strong>
+                        <p id="imagesExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="imageSearch" placeholder="Search images..." onkeyup="filterTable('imageSearch', 'imagesTable')">
+                    </div>
+                    <div id="imagesList" class="data-list"></div>
+                </section>
+
+                <!-- Storage Paths Section -->
+                <section id="storagepaths" class="content-section">
+                    <h2>💾 Storage Paths</h2>
+                    <div class="info-banner">
+                        <strong>What are Storage Paths?</strong>
+                        <p id="storagePathsExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="storagePathSearch" placeholder="Search storage paths..." onkeyup="filterTable('storagePathSearch', 'storagePathsTable')">
+                    </div>
+                    <div id="storagePathsList" class="data-list"></div>
+                </section>
+
+                <!-- Custom Locations Section -->
+                <section id="customlocations" class="content-section">
+                    <h2>🌐 Custom Locations</h2>
+                    <div class="info-banner">
+                        <strong>What are Custom Locations?</strong>
+                        <p id="customLocationsExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="customLocationSearch" placeholder="Search custom locations..." onkeyup="filterTable('customLocationSearch', 'customLocationsTable')">
+                    </div>
+                    <div id="customLocationsList" class="data-list"></div>
+                </section>
+
+                <!-- Arc Resource Bridges Section -->
+                <section id="arcbridges" class="content-section">
+                    <h2>🌉 Arc Resource Bridges</h2>
+                    <div class="info-banner">
+                        <strong>What are Arc Resource Bridges?</strong>
+                        <p id="arcResourceBridgesExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="arcBridgeSearch" placeholder="Search Arc Resource Bridges..." onkeyup="filterTable('arcBridgeSearch', 'arcBridgesTable')">
+                    </div>
+                    <div id="arcBridgesList" class="data-list"></div>
+                </section>
+
+                <!-- Arc Gateways Section -->
+                <section id="arcgateways" class="content-section">
+                    <h2>🚪 Arc Gateways</h2>
+                    <div class="info-banner">
+                        <strong>What are Arc Gateways?</strong>
+                        <p>Arc Gateways provide a proxy for Arc-enabled servers to communicate with Azure without requiring public IP addresses or opening firewall ports. Nodes connected through a gateway have improved security and simplified network configuration.</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="arcGatewaySearch" placeholder="Search Arc Gateways..." onkeyup="filterTable('arcGatewaySearch', 'arcGatewaysTable')">
+                    </div>
+                    <div id="arcGatewaysList" class="data-list"></div>
+                </section>
+                <!-- Licenses Section -->
+                <section id="licenses" class="content-section">
+                    <h2>📜 Licensed Machines</h2>
+                    <div class="info-banner">
+                        <strong>What are Arc Licenses?</strong>
+                        <p id="licensesExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="licenseSearch" placeholder="Search licensed machines..." onkeyup="filterTable('licenseSearch', 'licensesTable')">
+                    </div>
+                    <div id="licensesList" class="data-list"></div>
+                </section>
+                <!-- Licenses Section -->
+                <section id="licenses" class="content-section">
+                    <h2>📜 Licensed Machines</h2>
+                    <div class="info-banner">
+                        <strong>What are Arc Licenses?</strong>
+                        <p id="licensesExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="licenseSearch" placeholder="Search licensed machines..." onkeyup="filterTable('licenseSearch', 'licensesTable')">
+                    </div>
+                    <div id="licensesList" class="data-list"></div>
+                </section>
+
+                <!-- Virtual Machines Section -->
+                <section id="virtualmachines" class="content-section">
+                    <h2>💻 Virtual Machines</h2>
+                    <div class="info-banner">
+                        <strong>What are Virtual Machines?</strong>
+                        <p id="vmsExplanation">Loading...</p>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="vmSearch" placeholder="Search virtual machines..." onkeyup="filterTable('vmSearch', 'vmsTable')">
+                    </div>
+                    
+                    <!-- Filter by cluster -->
+                    <div class="filter-bar">
+                        <label for="clusterFilter">Filter by Cluster:</label>
+                        <select id="clusterFilter" onchange="filterVMsByCluster()">
+                            <option value="">All Clusters</option>
+                        </select>
+                    </div>
+                    
+                    <div id="vmsList" class="data-list"></div>
+                </section>
+
+            </main>
+        </div>
+
+        <!-- Modal for Subnet Details -->
+        <div id="subnetModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeSubnetModal()">&times;</span>
+                <h2 id="modalNetworkName">Network Subnets</h2>
+                <div id="modalSubnetContent"></div>
+            </div>
+        </div>
+
+        <!-- Modal for Node Extensions -->
+        <div id="nodeExtensionsModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeNodeExtensionsModal()">&times;</span>
+                <h2 id="modalNodeName">Node Extensions</h2>
+                <div id="modalNodeExtensionsContent"></div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Azure Local Inventory Dashboard | <span id="appVersion">Version: 1.0.0</span></p>
+        </footer>
+    </div>
+
+    <!-- Progress Bar Overlay -->
+    <div id="progressOverlay" class="progress-overlay" style="display: none;">
+        <div class="progress-container">
+            <h3 class="progress-title">📡 Collecting Azure Local Data...</h3>
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-bar-fill" id="progressBarFill"></div>
+                </div>
+                <div class="progress-percentage" id="progressPercentage">0%</div>
+            </div>
+            <div class="progress-status" id="progressStatus">Initializing...</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
