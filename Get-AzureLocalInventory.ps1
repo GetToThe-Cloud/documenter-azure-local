@@ -7,7 +7,7 @@
 #>
 
 # Script version
-$script:Version = "1.0.0"
+$script:Version = "1.1.124"
 
 # Progress tracking
 $script:CollectionProgress = @{
@@ -466,7 +466,57 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
         } catch {
             Write-Host "      ⚠️  Failed to collect Arc Gateways: $($_.Exception.Message)" -ForegroundColor Yellow
         }
-        
+
+        # ---------------------------------------------------------------
+        # Pre-collect Arc machines and VM resources across ALL accessible
+        # subscriptions so that clusters whose nodes or Arc VMs reside in
+        # a different subscription or resource group are still discovered.
+        # ---------------------------------------------------------------
+        Write-Host "    ○ Discovering accessible subscriptions for cross-subscription inventory..." -ForegroundColor Gray
+        Update-CollectionProgress "Discovering subscriptions..." 12
+        $currentSubscriptionId = (Get-AzContext).Subscription.Id
+        $allAccessibleSubscriptions = @(Get-AzSubscription -ErrorAction SilentlyContinue |
+            Where-Object { $_.State -eq 'Enabled' })
+
+        $allArcMachinesList = [System.Collections.Generic.List[object]]::new()
+
+        # Helper: gather all Arc machines (nodes + HCI VMs) from the current Az context
+        function Invoke-CollectMachinesFromCurrentSubscription {
+            $machines = Get-AzConnectedMachine -ErrorAction SilentlyContinue
+            if ($machines) {
+                $subId = (Get-AzContext).Subscription.Id
+                foreach ($m in $machines) {
+                    # Stamp the subscription ID so we can switch context when needed later
+                    $m | Add-Member -NotePropertyName '_SubscriptionId' -NotePropertyValue $subId -Force -ErrorAction SilentlyContinue
+                    $allArcMachinesList.Add($m)
+                }
+            }
+        }
+
+        # Collect Arc machines from all accessible subscriptions
+        Invoke-CollectMachinesFromCurrentSubscription
+
+        foreach ($sub in $allAccessibleSubscriptions) {
+            if ($sub.Id -eq $currentSubscriptionId) { continue }
+            try {
+                $null = Set-AzContext -SubscriptionId $sub.Id -ErrorAction Stop -WarningAction SilentlyContinue
+                Write-Host "      ○ Discovering resources in subscription: $($sub.Name)..." -ForegroundColor Gray
+                Invoke-CollectMachinesFromCurrentSubscription
+            } catch {
+                Write-Host "      ⚠️  Cannot access subscription $($sub.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+            } finally {
+                $null = Set-AzContext -SubscriptionId $currentSubscriptionId -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+            }
+        }
+
+        # On Azure Local, guest VMs running on a cluster are registered as
+        # Microsoft.HybridCompute/machines with Kind = 'HCI'.
+        # Physical cluster nodes (the hypervisor hosts) have a different Kind value.
+        $allHCIArcVMs = @($allArcMachinesList | Where-Object { $_.Kind -eq 'HCI' })
+        $allArcNodes  = @($allArcMachinesList | Where-Object { $_.Kind -ne 'HCI' })
+
+        Write-Host "      ✓ Pre-collected $($allArcMachinesList.Count) Arc machine(s): $($allHCIArcVMs.Count) HCI VM(s) + $($allArcNodes.Count) node/server(s) across $($allAccessibleSubscriptions.Count) subscription(s)" -ForegroundColor Green
+
         # Get all Azure Local clusters
         Write-Host "    ○ Collecting Azure Local clusters..." -ForegroundColor Gray
         Update-CollectionProgress "Collecting Azure Local clusters..." 15
@@ -491,6 +541,11 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                         lastSyncTimestamp = if ($clusterDetail.Properties -and $clusterDetail.Properties.lastSyncTimestamp) { $clusterDetail.Properties.lastSyncTimestamp } else { "N/A" }
                         nodeCount = 0
                         vmCount = 0
+                        # Azure Hybrid Benefit for Azure Local is a cluster-level setting
+                        # controlled via softwareAssuranceProperties on the cluster resource.
+                        azureHybridBenefitEnabled = if ($clusterDetail.Properties -and
+                            $clusterDetail.Properties.softwareAssuranceProperties -and
+                            $clusterDetail.Properties.softwareAssuranceProperties.softwareAssuranceStatus -eq 'Enabled') { $true } else { $false }
                         tags = $cluster.Tags
                     }
                     
@@ -501,25 +556,25 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                     }
                     $inventory.summary.clustersByStatus[$statusKey]++
                     
-                    # Get Arc machines (nodes) for this cluster
+                    # Get Arc machines (nodes) for this cluster.
+                    # Physical nodes have Kind != 'HCI'; VMs have Kind = 'HCI'.
                     Write-Host "      ○ Collecting nodes for cluster: $($cluster.Name)..." -ForegroundColor Gray
                     Update-CollectionProgress "Collecting nodes for cluster: $($cluster.Name)..." 25
-                    # Try multiple methods to find nodes:
-                    # 1. Look in the same resource group
-                    # 2. Look for machines with cluster name in tags or name pattern
-                    # 3. Get all Arc machines and check for HCI node characteristics
-                    $arcMachines = Get-AzConnectedMachine -ResourceGroupName $cluster.ResourceGroupName -ErrorAction SilentlyContinue
-                    
-                    # If no machines found in cluster resource group, search subscription-wide
-                    if (-not $arcMachines) {
-                        Write-Host "        ○ No nodes in cluster RG, searching subscription..." -ForegroundColor Yellow
-                        $arcMachines = Get-AzConnectedMachine -ErrorAction SilentlyContinue | 
-                            Where-Object { 
-                                ($_.Tags -and $_.Tags['ClusterName'] -eq $cluster.Name) -or 
-                                $_.Name -like "$($cluster.Name)*" -or 
-                                ($_.Tags -and $_.Tags['Cluster'] -eq $cluster.Name) -or
-                                ($_.DetectedProperty -and $_.DetectedProperty['HostName'] -and $_.OSType -eq 'Windows' -and $_.OSName -like '*Azure Stack HCI*')
-                            }
+
+                    # Pass 1: nodes in the same resource group as the cluster
+                    $arcMachines = @($allArcNodes | Where-Object { $_.ResourceGroupName -eq $cluster.ResourceGroupName })
+
+                    # Pass 2: cross-subscription/RG fallback using tags or OS identity
+                    if (-not $arcMachines -or $arcMachines.Count -eq 0) {
+                        Write-Host "        ○ No nodes in cluster RG, searching across all subscriptions..." -ForegroundColor Yellow
+                        $arcMachines = @($allArcNodes | Where-Object {
+                            ($_.Tags -and $_.Tags['ClusterName'] -eq $cluster.Name) -or
+                            ($_.Tags -and $_.Tags['Cluster'] -eq $cluster.Name) -or
+                            ($_.OSType -eq 'Windows' -and $_.OSName -like '*Azure Stack HCI*')
+                        })
+                        if ($arcMachines.Count -gt 0) {
+                            Write-Host "        ✓ Found $($arcMachines.Count) node(s) across subscriptions" -ForegroundColor Green
+                        }
                     }
                     
                     foreach ($machine in $arcMachines) {
@@ -588,24 +643,12 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                         # Collect license information and Azure Hybrid Benefit status
                         $licenseInfo = @()
                         $hasLicense = $false
-                        $azureHybridBenefitEnabled = $false
+                        # Nodes inherit Azure Hybrid Benefit from their cluster's
+                        # softwareAssuranceProperties.softwareAssuranceStatus.
+                        $azureHybridBenefitEnabled = $clusterInfo.azureHybridBenefitEnabled
                         
                         if ($machine.LicenseProfile) {
                             $hasLicense = $true
-                            
-                            # Check for Azure Hybrid Benefit - ONLY check the specific license channel
-                            # Azure Hybrid Benefit is explicitly indicated by the LicenseChannel property
-                            if ($machine.LicenseProfile.LicenseChannel -eq "AzureHybridBenefit") {
-                                $azureHybridBenefitEnabled = $true
-                            }
-                            
-                            # Also check if ESU license explicitly mentions AHB
-                            if ($machine.LicenseProfile.EsuProfile) {
-                                if ($machine.LicenseProfile.EsuProfile.LicenseAssignmentState -eq "Assigned" -and
-                                    $machine.LicenseProfile.LicenseChannel -eq "AzureHybridBenefit") {
-                                    $azureHybridBenefitEnabled = $true
-                                }
-                            }
                             
                             if ($machine.LicenseProfile.EsuProfile -and $machine.LicenseProfile.EsuProfile.LicenseAssignmentState) {
                                 $licenseInfo += @{
@@ -624,8 +667,15 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                         }
                         
                         # Collect installed extensions
+                        # If the machine is in a different subscription, temporarily switch context.
                         $extensions = @()
                         try {
+                            $machineSubId = ""
+                            if ($machine.ResourceId -match '/subscriptions/([^/]+)/') { $machineSubId = $matches[1] }
+                            $needsSubSwitch = $machineSubId -and $machineSubId -ne $currentSubscriptionId
+                            if ($needsSubSwitch) {
+                                $null = Set-AzContext -SubscriptionId $machineSubId -ErrorAction Stop -WarningAction SilentlyContinue
+                            }
                             $machineExtensions = Get-AzConnectedMachineExtension -ResourceGroupName $machine.ResourceGroupName -MachineName $machine.Name -ErrorAction SilentlyContinue
                             if ($machineExtensions) {
                                 foreach ($ext in $machineExtensions) {
@@ -641,6 +691,9 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                             }
                         } catch {
                             Write-Host "        ⚠️  Could not retrieve extensions for $($machine.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+                        } finally {
+                            # Always restore the primary context
+                            $null = Set-AzContext -SubscriptionId $currentSubscriptionId -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
                         }
                         
                         $nodeInfo = @{
@@ -762,7 +815,7 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                     Write-Host "      ○ Collecting logical networks for cluster: $($cluster.Name)..." -ForegroundColor Gray
                     Update-CollectionProgress "Collecting logical networks for cluster: $($cluster.Name)..." 40
                     $networks = Get-AzResource -ResourceType "Microsoft.AzureStackHCI/logicalnetworks" -ResourceGroupName $cluster.ResourceGroupName -ErrorAction SilentlyContinue
-                    
+
                     foreach ($network in $networks) {
                         $networkDetail = Get-AzResource -ResourceId $network.ResourceId -ExpandProperties -ErrorAction SilentlyContinue
                         
@@ -782,11 +835,12 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                         # Get subnets if available
                         if ($networkDetail.Properties -and $networkDetail.Properties.subnets) {
                             foreach ($subnet in $networkDetail.Properties.subnets) {
+                                $prefix = if ($subnet.properties -and $subnet.properties.addressPrefix) { $subnet.properties.addressPrefix } else { $null }
                                 $networkInfo.subnets += @{
-                                    name = if ($subnet.name) { $subnet.name } else { "Default" }
-                                    addressPrefix = if ($subnet.properties.addressPrefix) { $subnet.properties.addressPrefix } else { "N/A" }
-                                    vlan = if ($subnet.properties.vlan) { $subnet.properties.vlan } else { "N/A" }
-                                    ipPools = if ($subnet.properties.ipPools) { $subnet.properties.ipPools } else { @() }
+                                    name          = if ($subnet.name) { $subnet.name } else { "Default" }
+                                    addressPrefix = if ($prefix) { $prefix } else { "N/A" }
+                                    vlan          = if ($subnet.properties.vlan) { $subnet.properties.vlan } else { "N/A" }
+                                    ipPools       = if ($subnet.properties.ipPools) { $subnet.properties.ipPools } else { @() }
                                 }
                             }
                         }
@@ -926,61 +980,7 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                         $inventory.customLocations += $locInfo
                     }
                     
-                    # Get virtual machines for this cluster
-                    Write-Host "      ○ Collecting virtual machines for cluster: $($cluster.Name)..." -ForegroundColor Gray
-                    Update-CollectionProgress "Collecting virtual machines..." 70
-                    $vms = Get-AzResource -ResourceType "Microsoft.AzureStackHCI/virtualmachineinstances" -ResourceGroupName $cluster.ResourceGroupName -ErrorAction SilentlyContinue
-                    
-                    foreach ($vm in $vms) {
-                        $vmDetail = Get-AzResource -ResourceId $vm.ResourceId -ExpandProperties -ErrorAction SilentlyContinue
-                        
-                        # Try to determine which node the VM is on
-                        $nodeName = "Unknown"
-                        if ($vmDetail.Properties -and $vmDetail.Properties.instanceView -and $vmDetail.Properties.instanceView.vmAgent -and $vmDetail.Properties.instanceView.vmAgent.statuses) {
-                            $nodeStatus = $vmDetail.Properties.instanceView.vmAgent.statuses | Where-Object { $_.type -eq "NodeName" }
-                            if ($nodeStatus) {
-                                $nodeName = $nodeStatus.displayStatus
-                            }
-                        }
-                        
-                        # If still unknown, try other properties
-                        if ($nodeName -eq "Unknown" -and $vmDetail.Properties -and $vmDetail.Properties.hostResourceId) {
-                            # Extract node name from host resource ID
-                            $hostResId = $vmDetail.Properties.hostResourceId
-                            if ($hostResId -match '/providers/Microsoft.HybridCompute/machines/([^/]+)') {
-                                $nodeName = $matches[1]
-                            }
-                        }
-                        
-                        $vmInfo = @{
-                            name = $vm.Name
-                            clusterName = $cluster.Name
-                            nodeName = $nodeName
-                            resourceGroup = $vm.ResourceGroupName
-                            location = $vm.Location
-                            resourceId = $vm.ResourceId
-                            powerState = if ($vmDetail.Properties -and $vmDetail.Properties.instanceView -and $vmDetail.Properties.instanceView.powerState) { $vmDetail.Properties.instanceView.powerState } else { "Unknown" }
-                            provisioningState = if ($vmDetail.Properties -and $vmDetail.Properties.provisioningState) { $vmDetail.Properties.provisioningState } else { "Unknown" }
-                            osType = if ($vmDetail.Properties -and $vmDetail.Properties.osProfile -and $vmDetail.Properties.osProfile.osType) { $vmDetail.Properties.osProfile.osType } else { "Unknown" }
-                            vmSize = if ($vmDetail.Properties -and $vmDetail.Properties.hardwareProfile -and $vmDetail.Properties.hardwareProfile.vmSize) { $vmDetail.Properties.hardwareProfile.vmSize } else { "Custom" }
-                            cpuCount = if ($vmDetail.Properties -and $vmDetail.Properties.hardwareProfile -and $vmDetail.Properties.hardwareProfile.processors) { $vmDetail.Properties.hardwareProfile.processors } else { 0 }
-                            memoryMB = if ($vmDetail.Properties -and $vmDetail.Properties.hardwareProfile -and $vmDetail.Properties.hardwareProfile.memoryMB) { $vmDetail.Properties.hardwareProfile.memoryMB } else { 0 }
-                            imageReference = if ($vmDetail.Properties -and $vmDetail.Properties.storageProfile -and $vmDetail.Properties.storageProfile.imageReference -and $vmDetail.Properties.storageProfile.imageReference.id) { $vmDetail.Properties.storageProfile.imageReference.id } else { "N/A" }
-                            tags = $vm.Tags
-                        }
-                        
-                        $inventory.virtualMachines += $vmInfo
-                        $clusterInfo.vmCount++
-                        
-                        # Update node VM count if we know which node
-                        if ($nodeName -ne "Unknown") {
-                            $nodeEntry = $inventory.nodes | Where-Object { $_.name -eq $nodeName -and $_.clusterName -eq $cluster.Name }
-                            if ($nodeEntry) {
-                                $nodeEntry.vmCount++
-                                $nodeEntry.vmNames += $vm.Name
-                            }
-                        }
-                    }
+                    # Virtual machines are collected after the cluster loop (no cluster matching)
                     
                     # Get Kubernetes clusters for this cluster (Arc-enabled Kubernetes)
                     Write-Host "      ○ Collecting Kubernetes clusters for cluster: $($cluster.Name)..." -ForegroundColor Gray
@@ -1031,8 +1031,138 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                 }
             }
         }
-        
-        # Update summary counts
+
+        # Collect all HCI Arc VMs (Kind = 'HCI') without cluster matching
+        Write-Host "    ○ Collecting virtual machines..." -ForegroundColor Gray
+        Update-CollectionProgress "Collecting virtual machines..." 70
+        foreach ($vm in $allHCIArcVMs) {
+            $vmInst = $null
+            $clusterName = 'N/A'
+            $logicalNetworkName = 'N/A'
+            $vmSubId = $vm._SubscriptionId
+            $vmNeedsSwitch = $vmSubId -and $vmSubId -ne $currentSubscriptionId
+            try {
+                if ($vmNeedsSwitch) { $null = Set-AzContext -SubscriptionId $vmSubId -ErrorAction Stop -WarningAction SilentlyContinue }
+                $vmInstRest = Invoke-AzRestMethod -Path "$($vm.ResourceId)/providers/Microsoft.AzureStackHCI/virtualMachineInstances/default?api-version=2024-02-01-preview" -Method GET -ErrorAction SilentlyContinue
+                if ($vmInstRest -and $vmInstRest.StatusCode -eq 200) {
+                    $vmInst = ($vmInstRest.Content | ConvertFrom-Json).properties
+                }
+            } catch {}
+            finally {
+                if ($vmNeedsSwitch) { $null = Set-AzContext -SubscriptionId $currentSubscriptionId -ErrorAction SilentlyContinue -WarningAction SilentlyContinue }
+            }
+
+                # Map VM to cluster via HCI network interface -> logical network resource ID.
+                # The NIC lookup runs inside the try block so we are still in the VM's
+                # subscription context (important for cross-subscription VMs).
+            #     if ($vmInst -and $vmInst.networkProfile -and $vmInst.networkProfile.networkInterfaces) {
+            #         :nicLoop foreach ($vmNic in $vmInst.networkProfile.networkInterfaces) {
+            #             if (-not $vmNic.id) { continue }
+            #             try {
+            #                 $nicRest = Invoke-AzRestMethod -Path "$($vmNic.id)?api-version=2024-02-01-preview" -Method GET -ErrorAction SilentlyContinue
+            #                 if ($nicRest -and $nicRest.StatusCode -eq 200) {
+            #                     $nicProps = ($nicRest.Content | ConvertFrom-Json).properties
+            #                     if ($nicProps.ipConfigurations) {
+            #                         foreach ($ipCfg in $nicProps.ipConfigurations) {
+            #                             $lnId = if ($ipCfg.properties -and $ipCfg.properties.subnet -and $ipCfg.properties.subnet.id) { $ipCfg.properties.subnet.id } else { $null }
+            #                             if ($lnId) {
+            #                                 $matchedNet = $inventory.logicalNetworks | Where-Object { $_.resourceId -eq $lnId } | Select-Object -First 1
+            #                                 if ($matchedNet) {
+            #                                     $clusterName = $matchedNet.clusterName
+            #                                     $logicalNetworkName = $matchedNet.name
+            #                                     break nicLoop
+            #                                 }
+            #                             }
+            #                         }
+            #                     }
+            #                 }
+            #             } catch {}
+            #         }
+            #     }
+            # } catch {}
+            # finally {
+            #     if ($vmNeedsSwitch) { $null = Set-AzContext -SubscriptionId $currentSubscriptionId -ErrorAction SilentlyContinue -WarningAction SilentlyContinue }
+            # }
+
+            $powerState = switch ($vm.Status) {
+                'Connected'    { 'Running' }
+                'Disconnected' { 'Stopped' }
+                default        { if ($vm.Status) { $vm.Status } else { 'Unknown' } }
+            }
+            if ($vmInst -and $vmInst.instanceView -and $vmInst.instanceView.powerState) {
+                $powerState = $vmInst.instanceView.powerState
+            }
+
+            # Extract IP address from Arc agent NIC data
+            $ipAddress = 'N/A'
+            if ($vm.NetworkProfileNetworkInterface) {
+                foreach ($nic in $vm.NetworkProfileNetworkInterface) {
+                    $ipv4 = $nic.ipAddress | Where-Object { $_.Version -eq 'IPv4' } | Select-Object -First 1
+                    if ($ipv4 -and $ipv4.address) { $ipAddress = $ipv4.address; break }
+                }
+            }
+
+            # Fallback: match Arc agent NIC subnet prefix against inventoried logical network subnets
+            if ($clusterName -eq 'N/A' -and $vm.NetworkProfileNetworkInterface) {
+                foreach ($nic in $vm.NetworkProfileNetworkInterface) {
+                    foreach ($ipEntry in $nic.ipAddress) {
+                        if ($ipEntry.Version -eq 'IPv4' -and $ipEntry.SubnetAddressPrefix) {
+                            $matchedNet = $inventory.logicalNetworks.Subnets | Where-Object { $_.addressPrefix -eq $ipEntry.SubnetAddressPrefix }
+                            | Select-Object -First 1
+                            if ($matchedNet) {
+                                $filter = $inventory.logicalNetworks | Where-Object { $_.subnets.name -contains $matchedNet.name } | Select -first 1
+                                $clusterName = $filter.clusterName
+                                $logicalNetworkName = $filter.name
+                                break
+                            }
+                        }
+                    }
+                    if ($clusterName -ne 'N/A') { break }
+                }
+            }
+
+            $inventory.virtualMachines += @{
+                name              = $vm.Name
+                clusterName       = $clusterName
+                logicalNetwork    = $logicalNetworkName
+                resourceGroup     = $vm.ResourceGroupName
+                location          = $vm.Location
+                resourceId        = $vm.ResourceId
+                arcStatus         = $vm.Status
+                powerState        = $powerState
+                ipAddress         = $ipAddress
+                provisioningState = if ($vm.ProvisioningState) { $vm.ProvisioningState } else { 'Unknown' }
+                osType            = if ($vm.OSType) { $vm.OSType } else { 'Unknown' }
+                osName            = if ($vm.OSName) { $vm.OSName } else { 'Unknown' }
+                osVersion         = if ($vm.OSVersion) { $vm.OSVersion } else { 'N/A' }
+                agentVersion      = if ($vm.AgentVersion) { $vm.AgentVersion } else { 'N/A' }
+                vmSize            = if ($vmInst -and $vmInst.hardwareProfile -and $vmInst.hardwareProfile.vmSize) { $vmInst.hardwareProfile.vmSize } else { 'Custom' }
+                cpuCount          = if ($vmInst -and $vmInst.hardwareProfile -and $vmInst.hardwareProfile.processors) { $vmInst.hardwareProfile.processors }
+                                    elseif ($vm.DetectedProperty -and $vm.DetectedProperty['logicalCoreCount']) { [int]$vm.DetectedProperty['logicalCoreCount'] }
+                                    elseif ($vm.DetectedProperty -and $vm.DetectedProperty['coreCount']) { [int]$vm.DetectedProperty['coreCount'] }
+                                    else { 0 }
+                memoryMB          = if ($vmInst -and $vmInst.hardwareProfile -and $vmInst.hardwareProfile.memoryMB) { $vmInst.hardwareProfile.memoryMB }
+                                    elseif ($vm.DetectedProperty -and $vm.DetectedProperty['totalPhysicalMemoryInBytes']) { [math]::Round([double]$vm.DetectedProperty['totalPhysicalMemoryInBytes'] / 1MB) }
+                                    elseif ($vm.DetectedProperty -and $vm.DetectedProperty['totalPhysicalMemoryInGigabytes']) { [math]::Round([double]$vm.DetectedProperty['totalPhysicalMemoryInGigabytes'] * 1024) }
+                                    else { 0 }
+                imageReference    = if ($vmInst -and $vmInst.storageProfile -and $vmInst.storageProfile.imageReference -and $vmInst.storageProfile.imageReference.id) { $vmInst.storageProfile.imageReference.id } else { 'N/A' }
+                tags              = $vm.Tags
+            }
+        }
+        Write-Host "      ✓ Found $($inventory.virtualMachines.Count) virtual machine(s)" -ForegroundColor Green
+
+        # Update per-cluster VM counts now that clusterName is resolved via logical network mapping
+        foreach ($vmEntry in $inventory.virtualMachines) {
+            if ($vmEntry.clusterName -and $vmEntry.clusterName -ne 'N/A') {
+                if (-not $inventory.summary.vmsByCluster.ContainsKey($vmEntry.clusterName)) {
+                    $inventory.summary.vmsByCluster[$vmEntry.clusterName] = 0
+                }
+                $inventory.summary.vmsByCluster[$vmEntry.clusterName]++
+                $clusterEntry = $inventory.clusters | Where-Object { $_.name -eq $vmEntry.clusterName }
+                if ($clusterEntry) { $clusterEntry.vmCount++ }
+            }
+        }
+
         $inventory.summary.totalClusters = $inventory.clusters.Count
         $inventory.summary.totalNodes = $inventory.nodes.Count
         $inventory.summary.totalLogicalNetworks = $inventory.logicalNetworks.Count

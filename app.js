@@ -1039,14 +1039,16 @@ function renderVMTable(vms) {
     if (!container) return;
     
     let html = '<table id="vmsTable" class="data-table"><thead><tr>';
-    html += '<th>Name</th><th>Cluster</th><th>Node</th><th>Power State</th>';
+    html += '<th>Name</th><th>Cluster</th><th>Resource Group</th><th>IP Address</th><th>Logical Network</th><th>Power State</th>';
     html += '<th>OS Type</th><th>CPUs</th><th>Memory (MB)</th><th>Status</th></tr></thead><tbody>';
     
     vms.forEach(vm => {
         html += '<tr>';
         html += `<td><strong>${vm.name}</strong></td>`;
-        html += `<td>${vm.clusterName}</td>`;
-        html += `<td>${vm.nodeName}</td>`;
+        html += `<td>${vm.clusterName || 'N/A'}</td>`;
+        html += `<td>${vm.resourceGroup || 'N/A'}</td>`;
+        html += `<td>${vm.ipAddress || 'N/A'}</td>`;
+        html += `<td>${vm.logicalNetwork || 'N/A'}</td>`;
         html += `<td><span class="badge badge-${getPowerStateColor(vm.powerState)}">${vm.powerState}</span></td>`;
         html += `<td>${vm.osType}</td>`;
         html += `<td>${vm.cpuCount}</td>`;
@@ -1193,32 +1195,146 @@ async function exportToPDF() {
         const doc = new jsPDF();
         
         let yPos = 20;
+        const pageWidth = doc.internal.pageSize.width;
         const pageHeight = doc.internal.pageSize.height;
         const margin = 20;
-        
-        // Helper function to check if we need a new page
+        const contentWidth = pageWidth - margin * 2;
+
+        // Brand colors
+        const brandBlue = [0, 120, 212];   // Microsoft Azure blue
+        const darkGray = [50, 50, 50];
+        const lightGray = [240, 240, 240];
+        const white = [255, 255, 255];
+
+        // Shared table theme for a professional look
+        const tableTheme = {
+            styles: { fontSize: 8, cellPadding: 3 },
+            headStyles: {
+                fillColor: brandBlue,
+                textColor: white,
+                fontStyle: 'bold',
+                halign: 'left'
+            },
+            alternateRowStyles: { fillColor: [245, 249, 255] },
+            margin: { left: margin, right: margin }
+        };
+
+        // Helper: add page footer (page number + confidential line)
+        function addPageFooter() {
+            const totalPages = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {
+                doc.setPage(i);
+                doc.setFontSize(7);
+                doc.setTextColor(150, 150, 150);
+                doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+                doc.text('CONFIDENTIAL - Azure Local Inventory Report', margin, pageHeight - 10);
+                // Thin top separator line
+                doc.setDrawColor(0, 120, 212);
+                doc.setLineWidth(0.5);
+                doc.line(margin, pageHeight - 14, pageWidth - margin, pageHeight - 14);
+            }
+            // Reset text color
+            doc.setTextColor(0, 0, 0);
+        }
+
+        // Helper: section header with colored bar
+        function addSectionHeader(title) {
+            checkPageBreak(30);
+            doc.setFillColor(...brandBlue);
+            doc.rect(margin, yPos - 5, contentWidth, 9, 'F');
+            doc.setFontSize(13);
+            doc.setTextColor(...white);
+            doc.text(title, margin + 3, yPos + 1);
+            doc.setTextColor(0, 0, 0);
+            yPos += 10;
+        }
+
+        // Helper: check page break
         function checkPageBreak(requiredSpace = 20) {
-            if (yPos + requiredSpace > pageHeight - margin) {
+            if (yPos + requiredSpace > pageHeight - margin - 15) {
                 doc.addPage();
                 yPos = margin;
                 return true;
             }
             return false;
         }
-        
-        // Title
-        doc.setFontSize(20);
-        doc.text('Azure Local Inventory Report', margin, yPos);
-        yPos += 10;
-        
-        // Date
-        doc.setFontSize(10);
-        doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPos);
-        yPos += 5;
-        
+
+        // ===== COVER PAGE =====
+        // Blue header bar
+        doc.setFillColor(...brandBlue);
+        doc.rect(0, 0, pageWidth, 60, 'F');
+        doc.setFontSize(28);
+        doc.setTextColor(...white);
+        doc.text('Azure Local', margin, 30);
+        doc.setFontSize(16);
+        doc.text('Infrastructure Inventory Report', margin, 42);
+        doc.setTextColor(0, 0, 0);
+
+        yPos = 80;
         const summary = inventoryData.summary || {};
-        doc.text(`Subscription: ${inventoryData.subscription || 'N/A'}`, margin, yPos);
+        const costAnalysisData = inventoryData.costAnalysis || {};
+        const reportDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        doc.setFontSize(11);
+        doc.setTextColor(...darkGray);
+        doc.text(`Report Date:`, margin, yPos); doc.text(reportDate, margin + 50, yPos); yPos += 7;
+        doc.text(`Subscription:`, margin, yPos); doc.text(inventoryData.subscription || 'N/A', margin + 50, yPos); yPos += 7;
+        doc.text(`Tenant ID:`, margin, yPos); doc.text(inventoryData.tenantId || 'N/A', margin + 50, yPos); yPos += 15;
+
+        // Executive summary box
+        doc.setFillColor(...lightGray);
+        doc.roundedRect(margin, yPos - 3, contentWidth, 55, 3, 3, 'F');
+        doc.setFontSize(13);
+        doc.setTextColor(...brandBlue);
+        doc.text('Executive Summary', margin + 5, yPos + 5);
+        doc.setFontSize(10);
+        doc.setTextColor(...darkGray);
+        yPos += 14;
+        const execLines = [
+            `Infrastructure: ${summary.totalClusters || 0} cluster(s), ${summary.totalNodes || 0} node(s), ${costAnalysisData.totalCores || 0} physical cores`,
+            `Workloads: ${summary.totalVirtualMachines || 0} virtual machine(s) across ${summary.totalLogicalNetworks || 0} logical network(s)`,
+            `Storage & Services: ${summary.totalStoragePaths || 0} storage path(s), ${summary.totalArcResourceBridges || 0} Arc Resource Bridge(s)`,
+            `Licensing: ${summary.totalLicensedMachines || 0} licensed machine(s), ${costAnalysisData.nodesWithHybridBenefit || 0} node(s) with Azure Hybrid Benefit`,
+            `Estimated Monthly Cost: $${costAnalysisData.estimatedMonthlyCost?.toFixed(2) || '0.00'}  |  Potential Savings: $${costAnalysisData.potentialMonthlySavings?.toFixed(2) || '0.00'}/month`
+        ];
+        execLines.forEach(line => { doc.text(line, margin + 5, yPos); yPos += 6; });
+        yPos += 10;
+
+        // Resource count cards (two-column layout)
+        doc.setFontSize(13);
+        doc.setTextColor(...brandBlue);
+        doc.text('Resource Inventory', margin + 5, yPos + 3);
+        yPos += 10;
+        const resourceItems = [
+            ['Clusters', summary.totalClusters || 0],
+            ['Nodes', summary.totalNodes || 0],
+            ['Virtual Machines', summary.totalVirtualMachines || 0],
+            ['Logical Networks', summary.totalLogicalNetworks || 0],
+            ['Images', summary.totalImages || 0],
+            ['Storage Paths', summary.totalStoragePaths || 0],
+            ['Custom Locations', summary.totalCustomLocations || 0],
+            ['Arc Resource Bridges', summary.totalArcResourceBridges || 0],
+            ['Arc Gateways', summary.totalArcGateways || 0],
+            ['Licensed Machines', summary.totalLicensedMachines || 0]
+        ];
+        doc.setFontSize(9);
+        doc.setTextColor(...darkGray);
+        const colWidth = contentWidth / 2;
+        resourceItems.forEach((item, i) => {
+            const col = i % 2;
+            const x = margin + col * colWidth + 5;
+            if (col === 0 && i > 0) yPos += 6;
+            doc.text(`${item[0]}:`, x, yPos);
+            doc.setFont(undefined, 'bold');
+            doc.text(`${item[1]}`, x + 55, yPos);
+            doc.setFont(undefined, 'normal');
+        });
         yPos += 15;
+        doc.setTextColor(0, 0, 0);
+
+        // ===== START DETAIL PAGES =====
+        doc.addPage();
+        yPos = margin;
         
         // WAF Assessment (moved to beginning)
         if (wafConfig) {
@@ -1316,74 +1432,38 @@ async function exportToPDF() {
             yPos += 10;
         }
         
-        // Summary Section
-        checkPageBreak(40);
-        doc.setFontSize(16);
-        doc.text('Summary', margin, yPos);
-        yPos += 10;
-        
-        doc.setFontSize(10);
-        const summaryItems = [
-            `Clusters: ${summary.totalClusters || 0}`,
-            `Nodes: ${summary.totalNodes || 0}`,
-            `Logical Networks: ${summary.totalLogicalNetworks || 0}`,
-            `Images: ${summary.totalImages || 0}`,
-            `Storage Paths: ${summary.totalStoragePaths || 0}`,
-            `Custom Locations: ${summary.totalCustomLocations || 0}`,
-            `Arc Resource Bridges: ${summary.totalArcResourceBridges || 0}`,
-            `Arc Gateways: ${summary.totalArcGateways || 0}`,
-            `Licensed Machines: ${summary.totalLicensedMachines || 0}`,
-            `Virtual Machines: ${summary.totalVirtualMachines || 0}`,
-            ``,
-            `Total Physical Cores: ${inventoryData.costAnalysis?.totalCores || 0}`,
-            `Current Monthly Cost: $${inventoryData.costAnalysis?.estimatedMonthlyCost?.toFixed(2) || '0.00'}`,
-            `Nodes with Hybrid Benefit: ${inventoryData.costAnalysis?.nodesWithHybridBenefit || 0}`
-        ];
-        
-        summaryItems.forEach(item => {
-            doc.text(item, margin, yPos);
-            yPos += 6;
-        });
-        yPos += 10;
-        
         // Clusters
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Clusters', margin, yPos);
-        yPos += 8;
-        
-        doc.setFontSize(9);
+        addSectionHeader('Clusters');
         const clusters = inventoryData.clusters || [];
         if (clusters.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
-                head: [['Name', 'Location', 'Status', 'Nodes', 'VMs']],
+                head: [['Name', 'Resource Group', 'Location', 'Status', 'Software Version', 'Nodes', 'VMs', 'Hybrid Benefit']],
                 body: clusters.map(c => [
                     c.name,
+                    c.resourceGroup,
                     c.location,
                     c.status,
+                    c.softwareVersion || 'N/A',
                     c.nodeCount.toString(),
-                    c.vmCount.toString()
+                    c.vmCount.toString(),
+                    c.azureHybridBenefitEnabled ? 'Enabled' : 'Not Enabled'
                 ]),
-                styles: { fontSize: 8 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         } else {
+            doc.setFontSize(9);
             doc.text('No clusters found', margin, yPos);
             yPos += 10;
         }
         
         // Nodes
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Nodes', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Nodes — Hardware & Status');
         const nodes = inventoryData.nodes || [];
         if (nodes.length > 0) {
-            // First table: Basic info and hardware
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
                 head: [['Name', 'Cluster', 'Status', 'Manufacturer', 'Model', 'Serial Number', 'Cores', 'Memory (GB)']],
                 body: nodes.map(n => [
@@ -1396,125 +1476,103 @@ async function exportToPDF() {
                     n.physicalCores || 'Unknown',
                     n.memoryGB || 'Unknown'
                 ]),
-                styles: { fontSize: 7 },
-                margin: { left: margin }
             });
-            yPos = doc.lastAutoTable.finalY + 5;
+            yPos = doc.lastAutoTable.finalY + 8;
             
-            // Second table: Software and workload
-            checkPageBreak(40);
+            addSectionHeader('Nodes — Software & Workload');
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
-                head: [['Name', 'Solution Version', 'VMs', 'K8s', 'Agent Version']],
+                head: [['Name', 'Solution Version', 'OS Version', 'VMs', 'K8s Clusters', 'Agent Version', 'Hybrid Benefit']],
                 body: nodes.map(n => [
                     n.name,
                     n.solutionVersion || 'Unknown',
+                    n.osVersion || 'Unknown',
                     n.vmCount || '0',
                     n.k8sClusterCount || '0',
-                    n.agentVersion
+                    n.agentVersion,
+                    n.azureHybridBenefitEnabled ? 'Enabled' : 'Not Enabled'
                 ]),
-                styles: { fontSize: 7 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         } else {
+            doc.setFontSize(9);
             doc.text('No nodes found', margin, yPos);
             yPos += 10;
         }
         
         // Logical Networks
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Logical Networks', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Logical Networks');
         const networks = inventoryData.logicalNetworks || [];
         if (networks.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
-                head: [['Name', 'Cluster', 'VM Switch', 'Subnets', 'Status']],
+                head: [['Name', 'Cluster', 'VM Switch', 'Subnets', 'Address Prefix', 'Status']],
                 body: networks.map(n => [
                     n.name,
                     n.clusterName,
                     n.vmSwitchName,
                     `${n.subnets.length} subnet(s)`,
+                    n.subnets.map(s => s.addressPrefix).filter(p => p && p !== 'N/A').join(', ') || 'N/A',
                     n.provisioningState
                 ]),
-                styles: { fontSize: 8 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         }
         
         // Storage Paths
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Storage Paths', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Storage Paths');
         const paths = inventoryData.storagePaths || [];
         if (paths.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
                 head: [['Name', 'Cluster', 'Path', 'Status']],
                 body: paths.map(p => [p.name, p.clusterName, p.path, p.provisioningState || 'N/A']),
-                styles: { fontSize: 8 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         }
         
         // Custom Locations
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Custom Locations', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Custom Locations');
         const customLocs = inventoryData.customLocations || [];
         if (customLocs.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
                 head: [['Name', 'Cluster', 'Namespace', 'Status']],
                 body: customLocs.map(l => [l.name, l.clusterName, l.namespace, l.provisioningState]),
-                styles: { fontSize: 8 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         }
         
         // Arc Resource Bridges
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Arc Resource Bridges', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Arc Resource Bridges');
         const arcBridges = inventoryData.arcResourceBridges || [];
         if (arcBridges.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
-                head: [['Name', 'Cluster', 'Status', 'Version', 'Distro']],
+                head: [['Name', 'Cluster', 'Status', 'Version', 'Provider', 'Distro']],
                 body: arcBridges.map(b => [
                     b.name,
                     b.clusterName,
                     b.status,
                     b.version || 'N/A',
+                    b.infrastructureConfig || 'N/A',
                     b.distro || 'N/A'
                 ]),
-                styles: { fontSize: 8 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         }
         
         // Licenses
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Licensed Machines', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Licensed Machines');
         const licenses = inventoryData.licenses || [];
         if (licenses.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
                 head: [['Machine Name', 'Cluster', 'License Type(s)', 'License State', 'Azure Hybrid Benefit']],
                 body: licenses.map(l => [
@@ -1524,80 +1582,72 @@ async function exportToPDF() {
                     [...new Set(l.licenses.map(lic => lic.state))].join(', '),
                     l.azureHybridBenefitEnabled ? 'Enabled' : 'Not Enabled'
                 ]),
-                styles: { fontSize: 7 },
-                margin: { left: margin }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         }
         
         // Cost Analysis
-        checkPageBreak(60);
-        doc.setFontSize(14);
-        doc.text('Cost Analysis & Azure Hybrid Benefit', margin, yPos);
-        yPos += 8;
-        
+        addSectionHeader('Cost Analysis & Azure Hybrid Benefit');
         const costAnalysis = inventoryData.costAnalysis || {};
         if (costAnalysis.totalCores) {
-            doc.setFontSize(10);
-            doc.text('Azure Local Pricing: $' + costAnalysis.corePrice + ' per physical core per month', margin, yPos);
-            yPos += 6;
-            doc.text('With Azure Hybrid Benefit: $' + costAnalysis.corePriceWithHybridBenefit + ' per core (FREE)', margin, yPos);
-            yPos += 10;
+            // Pricing reference
+            doc.setFontSize(9);
+            doc.setTextColor(100, 100, 100);
+            doc.text(`Pricing: $${costAnalysis.corePrice}/core/month (standard)  |  $${costAnalysis.corePriceWithHybridBenefit}/core/month (with Azure Hybrid Benefit)`, margin, yPos);
+            doc.setTextColor(0, 0, 0);
+            yPos += 8;
             
-            const costItems = [
-                `Total Physical Cores: ${costAnalysis.totalCores}`,
-                `Nodes with Azure Hybrid Benefit: ${costAnalysis.nodesWithHybridBenefit}`,
-                `Nodes without Azure Hybrid Benefit: ${costAnalysis.nodesWithoutHybridBenefit}`,
-                ``,
-                `Current Monthly Cost: $${costAnalysis.estimatedMonthlyCost.toFixed(2)}`,
-                `Current Yearly Cost: $${costAnalysis.estimatedYearlyCost.toFixed(2)}`
+            // Cost summary as a table
+            const costRows = [
+                ['Total Physical Cores', costAnalysis.totalCores.toString()],
+                ['Nodes with Azure Hybrid Benefit', costAnalysis.nodesWithHybridBenefit.toString()],
+                ['Nodes without Azure Hybrid Benefit', costAnalysis.nodesWithoutHybridBenefit.toString()],
+                ['Current Monthly Cost', `$${costAnalysis.estimatedMonthlyCost.toFixed(2)}`],
+                ['Current Yearly Cost', `$${costAnalysis.estimatedYearlyCost.toFixed(2)}`]
             ];
-            
             if (costAnalysis.potentialMonthlySavings > 0) {
-                costItems.push(``);
-                costItems.push(`Potential Monthly Savings: $${costAnalysis.potentialMonthlySavings.toFixed(2)}`);
-                costItems.push(`Potential Yearly Savings: $${costAnalysis.potentialYearlySavings.toFixed(2)}`);
+                costRows.push(['Potential Monthly Savings', `$${costAnalysis.potentialMonthlySavings.toFixed(2)}`]);
+                costRows.push(['Potential Yearly Savings', `$${costAnalysis.potentialYearlySavings.toFixed(2)}`]);
             }
-            
-            costItems.forEach(item => {
-                if (item === '') {
-                    yPos += 3;
-                } else {
-                    doc.text(item, margin, yPos);
-                    yPos += 6;
-                }
-            });
-            yPos += 10;
-        }
-        
-        // Virtual Machines
-        checkPageBreak(40);
-        doc.setFontSize(14);
-        doc.text('Virtual Machines', margin, yPos);
-        yPos += 8;
-        
-        const vms = inventoryData.virtualMachines || [];
-        if (vms.length > 0) {
             doc.autoTable({
+                ...tableTheme,
                 startY: yPos,
-                head: [['Name', 'Cluster', 'Node', 'CPUs', 'Memory (MB)', 'Power State']],
-                body: vms.map(v => [
-                    v.name,
-                    v.clusterName,
-                    v.nodeName,
-                    v.cpuCount.toString(),
-                    v.memoryMB.toString(),
-                    v.powerState
-                ]),
-                styles: { fontSize: 8 },
-                margin: { left: margin }
+                head: [['Metric', 'Value']],
+                body: costRows,
+                columnStyles: { 0: { fontStyle: 'bold' } }
             });
             yPos = doc.lastAutoTable.finalY + 10;
         }
         
+        // Virtual Machines
+        addSectionHeader('Virtual Machines');
+        const vms = inventoryData.virtualMachines || [];
+        if (vms.length > 0) {
+            doc.autoTable({
+                ...tableTheme,
+                startY: yPos,
+                head: [['Name', 'Cluster', 'Resource Group', 'IP Address', 'Logical Network', 'OS', 'CPUs', 'Memory (MB)', 'Power State']],
+                body: vms.map(v => [
+                    v.name,
+                    v.clusterName || 'N/A',
+                    v.resourceGroup || 'N/A',
+                    v.ipAddress || 'N/A',
+                    v.logicalNetwork || 'N/A',
+                    v.osName || v.osType || 'Unknown',
+                    v.cpuCount.toString(),
+                    v.memoryMB.toString(),
+                    v.powerState
+                ]),
+            });
+            yPos = doc.lastAutoTable.finalY + 10;
+        }
+
+        // Add page footers on all pages
+        addPageFooter();
+        
         // Save PDF with date in filename
         const now = new Date();
-        const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+        const dateStr = now.toISOString().split('T')[0];
         const filename = `azure-local-inventory-${dateStr}.pdf`;
         doc.save(filename);
         

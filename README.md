@@ -5,20 +5,22 @@ A comprehensive web-based inventory and documentation tool for Azure Local (Azur
 ## Overview
 
 The Azure Local Inventory Dashboard automatically scans and documents your Azure Stack HCI infrastructure, providing:
+- **Cross-subscription** inventory scanning across all Azure subscriptions
 - Complete hardware inventory with manufacturer, model, and serial numbers
 - Cost analysis with Azure Hybrid Benefit detection and savings calculations
 - Arc-enabled services tracking (Custom Locations, Resource Bridges, Gateways)
 - License compliance monitoring with ESU and Windows Server licensing
 - Workload distribution across clusters and nodes
+- VM-to-cluster mapping via logical network subnet matching
 - Well-Architected Framework (WAF) assessment
-- Interactive HTML reports with PDF export capability
+- Interactive HTML reports with executive-ready PDF export
 
 ## Features
 
 ### Infrastructure Inventory
 - 🔷 **Clusters**: Complete cluster configurations, resource groups, locations, node counts, and health status
 - 🖥️ **Nodes**: Hardware specifications (manufacturer, model, serial number, cores, memory), agent versions, solution versions
-- 💻 **Virtual Machines**: VM inventory with CPU, memory, power states, disk configurations, and host assignments
+- 💻 **Virtual Machines**: VM inventory with CPU, memory, power states, logical network, resource group, and cluster association via subnet matching
 - 🌐 **Logical Networks**: Network configurations, subnets, VM switches, VLAN settings, and DNS
 - 💾 **Storage Paths**: Storage inventory with provisioning states and capacity information
 - 💿 **Images**: Marketplace and custom images with OS types, versions, and states
@@ -27,7 +29,7 @@ The Azure Local Inventory Dashboard automatically scans and documents your Azure
 - 🔗 **Arc Services**: Custom Locations, Resource Bridges, and Arc Gateways
 - 🔌 **Node Extensions**: Clickable nodes display all installed Arc extensions with status and versions
 - 📜 **Licensed Machines**: Comprehensive license tracking with ESU profiles and product licenses
-- ✅ **Azure Hybrid Benefit**: Detection and tracking of Windows Server licensing benefits
+- ✅ **Azure Hybrid Benefit**: Cluster-level detection via `softwareAssuranceProperties` with node inheritance
 
 ### Cost Analysis & Optimization
 - 💰 **Cost Tracking**: Per-node cost calculation based on physical cores and Azure Local pricing ($10/core/month)
@@ -39,7 +41,7 @@ The Azure Local Inventory Dashboard automatically scans and documents your Azure
 ### Analytics & Reporting
 - 📊 **Visual Analytics**: Interactive charts showing status distributions and resource placement
 - 🔍 **Search & Filter**: Quick search across all resource types with real-time filtering
-- 📄 **PDF Export**: Generate comprehensive reports for documentation and compliance (includes WAF assessment)
+- 📄 **PDF Export**: Executive-ready reports with branded cover page, Azure-themed tables, section headers, page footers, and confidential marking (includes WAF assessment)
 - ⚡ **Auto-Refresh**: Real-time inventory updates with manual refresh option
 - 🎯 **WAF Assessment**: Fully configurable Well-Architected Framework compliance checks
   - **NEW**: External configuration file (`waf-config.json`) for easy customization
@@ -212,10 +214,14 @@ The web interface provides intuitive navigation through all inventory sections:
   - Workload assignments (VMs and Kubernetes clusters)
 - **📊 Subnet Details**: Click subnet information to view detailed network configurations
 - **💾 Filter VMs**: Select specific clusters to filter virtual machine views
-- **📄 Export PDF**: Generate comprehensive reports including:
-  - All inventory sections (clusters, nodes, VMs, networks, storage)
+- 📄 Export PDF**: Generate executive-ready reports including:
+  - **Cover page** with Azure-branded header and executive summary
+  - **Resource inventory** overview with total counts
+  - All inventory sections with Azure-themed table styling
+  - **Section headers** with colored bars for visual structure
   - Cost analysis with Azure Hybrid Benefit savings
-  - **NEW: Well-Architected Framework (WAF) assessment** with scores and recommendations
+  - Well-Architected Framework (WAF) assessment with scores and recommendations
+  - **Page footers** with page numbers and confidential marking
 
 ## What Gets Documented
 
@@ -242,11 +248,12 @@ The inventory tool automatically collects and documents the following informatio
 - **Arc Status**: Connection state and last heartbeat
 
 ### 3. Virtual Machines
-- VM names, resource IDs, and power states
-- CPU and memory allocations
-- Disk configurations and storage paths
-- Cluster and node assignments
-- Dynamic memory settings
+- VM names, resource groups, and power states
+- CPU count (from `logicalCoreCount`) and memory (from `totalPhysicalMemoryInBytes`)
+- IP addresses (IPv4 from Arc agent network profile)
+- Logical network association via subnet prefix matching
+- Cluster association derived from logical network mapping
+- OS type and name
 
 ### 4. Logical Networks
 - Network names and configurations
@@ -376,11 +383,11 @@ The cost analysis is based on official Azure Local pricing:
 
 ### How Azure Hybrid Benefit is Detected
 
-The tool automatically detects Azure Hybrid Benefit activation through multiple methods:
-1. License Profile Product Type contains "WindowsServer"
-2. License Profile Subscription Status is "Enabled"
-3. License Channel is set to "AzureHybridBenefit"
-4. License Status shows as "Licensed"
+The tool detects Azure Hybrid Benefit at the **cluster level** using the `softwareAssuranceProperties.softwareAssuranceStatus` property on the Azure Local cluster resource:
+1. Queries each cluster's `softwareAssuranceProperties` via the Azure Resource Manager API
+2. If `softwareAssuranceStatus` is `Enabled`, the cluster has Azure Hybrid Benefit active
+3. All nodes within a cluster **inherit** the cluster's Hybrid Benefit status
+4. Cost calculations use the cluster-level AHB status for accurate per-node pricing
 
 ### Features
 
@@ -405,16 +412,18 @@ The solution consists of three main layers working together to provide a compreh
 **Data Collection Process:**
 1. Validates PowerShell version (7.0+ required)
 2. Checks and installs/updates Azure PowerShell modules
-3. Queries Azure Resource Graph for clusters
-4. Retrieves Arc-enabled servers with hardware details
-5. Collects virtual machines with placement information
-6. Gathers logical networks and storage paths
-7. Queries Arc ecosystem (Custom Locations, Resource Bridges, Gateways)
-8. Collects license information from Arc machine profiles
-9. Detects Azure Hybrid Benefit activation
-10. Calculates costs based on physical cores and pricing model
-11. Performs WAF assessment checks
-12. Aggregates all data into structured JSON
+3. Iterates across all Azure subscriptions to pre-collect Arc machines
+4. Queries Azure Resource Graph for clusters
+5. Retrieves Arc-enabled servers with hardware details
+6. Detects Azure Hybrid Benefit at the cluster level via `softwareAssuranceProperties`
+7. Collects virtual machines (outside cluster loop) with logical network subnet matching
+8. Maps VMs to clusters via logical network subnet prefix matching
+9. Gathers logical networks and storage paths
+10. Queries Arc ecosystem (Custom Locations, Resource Bridges, Gateways)
+11. Collects license information from Arc machine profiles
+12. Calculates costs based on physical cores and cluster-level AHB status
+13. Performs WAF assessment checks
+14. Aggregates all data into structured JSON
 
 **Output:** Complete inventory object with 11 major sections plus cost analysis and WAF assessment
 
@@ -688,8 +697,7 @@ pwsh Start-AzureLocalServer.ps1 -Port 8082
 1. **Local Server Only**: The web server binds to localhost and is not accessible remotely
    - **Workaround**: Use SSH tunneling if remote access is needed
 
-2. **Single Subscription**: The tool scans resources in the currently selected Azure subscription
-   - **Workaround**: Run separate inventory collections for each subscription
+2. ~~**Single Subscription**~~: The tool now scans **all Azure subscriptions** the authenticated account has access to, automatically switching context as needed
 
 3. **Read-Only Operations**: The tool only reads data and does not modify any Azure resources
    - This is by design for safety
@@ -727,21 +735,25 @@ pwsh Start-AzureLocalServer.ps1 -Port 8082
 
 ## Version and Changelog
 
-**Current Version**: 1.0.0
+**Current Version**: 1.1.124
 
-### Features in v1.0.0
+See [CHANGES.md](CHANGES.md) for the full changelog.
+
+### Features in v1.1.124
+- ✅ **Cross-subscription scanning** across all Azure subscriptions
+- ✅ **Cluster-level Azure Hybrid Benefit** detection via `softwareAssuranceProperties`
+- ✅ **VM-to-cluster mapping** via logical network subnet prefix matching
+- ✅ **Executive PDF export** with branded cover page, Azure-themed tables, section headers, and page footers
 - ✅ Complete Azure Local cluster and node inventory
 - ✅ Hardware specifications tracking (manufacturer, model, serial, cores, memory)
-- ✅ Virtual machine inventory with placement details
+- ✅ Virtual machine inventory with resource group, IP address, logical network, and cluster association
 - ✅ Logical networks and storage paths documentation
 - ✅ Azure Arc ecosystem integration (Custom Locations, Resource Bridges, Gateways)
 - ✅ License compliance tracking with ESU profiles
-- ✅ Azure Hybrid Benefit detection and cost analysis
 - ✅ Per-node cost breakdown with savings calculations
 - ✅ Well-Architected Framework assessment
 - ✅ Automatic PowerShell module installation and updates
 - ✅ Interactive web dashboard with dark theme
-- ✅ PDF export functionality
 - ✅ PowerShell 7.0+ requirement validation
 
 ## License
