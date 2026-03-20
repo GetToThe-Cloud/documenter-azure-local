@@ -13,7 +13,7 @@
 .REQUIREDSCRIPTS Get-AzureLocalInventory.ps1
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
-    v1.1.130 - Changed filtering for OSSku to look for "Azure Stack HCI"
+    v1.1.135 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.124 - Cross-subscription scanning, executive PDF export support
     v1.0.0 - Initial release
 .PRIVATEDATA

@@ -12,6 +12,7 @@
 .REQUIREDSCRIPTS
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
+    v1.1.135 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.130 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.124 - Cross-subscription scanning, cluster-level AHB detection, VM-to-cluster mapping via logical network, executive PDF export
     v1.0.0 - Initial release
@@ -27,7 +28,7 @@
 #>
 
 # Script version
-$script:Version = "1.1.130"
+$script:Version = "1.1.135"
 
 # Progress tracking
 $script:CollectionProgress = @{
