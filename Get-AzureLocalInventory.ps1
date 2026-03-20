@@ -1,3 +1,23 @@
+<#PSScriptInfo
+.VERSION 1.1.124
+.GUID a3f7b2c1-4d8e-4f6a-9b0c-1e2d3f4a5b6c
+.AUTHOR Alex ter Neuzen
+.COMPANYNAME GetToTheCloud
+.COPYRIGHT (c) 2025 Alex ter Neuzen. All rights reserved.
+.TAGS Azure AzureLocal AzureStackHCI Inventory HCI Arc
+.LICENSEURI https://github.com/GetToThe-Cloud/documenter-azure-local/blob/main/LICENSE
+.PROJECTURI https://github.com/GetToThe-Cloud/documenter-azure-local
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES Az.Accounts, Az.Resources, Az.StackHCI, Az.ConnectedMachine, Az.ArcGateway
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+    v1.1.130 - Changed filtering for OSSku to look for "Azure Stack HCI"
+    v1.1.124 - Cross-subscription scanning, cluster-level AHB detection, VM-to-cluster mapping via logical network, executive PDF export
+    v1.0.0 - Initial release
+.PRIVATEDATA
+#>
+
 <#
 .SYNOPSIS
     Azure Local (Azure Stack HCI) Inventory Collection Module
@@ -7,7 +27,7 @@
 #>
 
 # Script version
-$script:Version = "1.1.124"
+$script:Version = "1.1.130"
 
 # Progress tracking
 $script:CollectionProgress = @{
@@ -562,7 +582,7 @@ Licenses help optimize costs and ensure compliance across your hybrid infrastruc
                     Update-CollectionProgress "Collecting nodes for cluster: $($cluster.Name)..." 25
 
                     # Pass 1: nodes in the same resource group as the cluster
-                    $arcMachines = @($allArcNodes | Where-Object { $_.ResourceGroupName -eq $cluster.ResourceGroupName })
+                    $arcMachines = @($allArcNodes | Where-Object { $_.ResourceGroupName -eq $cluster.ResourceGroupName -and $_.OSSku -eq "Azure Stack HCI"})
 
                     # Pass 2: cross-subscription/RG fallback using tags or OS identity
                     if (-not $arcMachines -or $arcMachines.Count -eq 0) {

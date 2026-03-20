@@ -1,4 +1,24 @@
 #!/usr/bin/env pwsh
+<#PSScriptInfo
+.VERSION 1.1.130
+.GUID b4e8c3d2-5f9a-4e7b-8c1d-2f3e4a5b6c7d
+.AUTHOR Alex ter Neuzen
+.COMPANYNAME GetToTheCloud
+.COPYRIGHT (c) 2025 Alex ter Neuzen. All rights reserved.
+.TAGS Azure AzureLocal AzureStackHCI WebServer Dashboard
+.LICENSEURI https://github.com/GetToThe-Cloud/documenter-azure-local/blob/main/LICENSE
+.PROJECTURI https://github.com/GetToThe-Cloud/documenter-azure-local
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES Az.Accounts
+.REQUIREDSCRIPTS Get-AzureLocalInventory.ps1
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+    v1.1.130 - Changed filtering for OSSku to look for "Azure Stack HCI"
+    v1.1.124 - Cross-subscription scanning, executive PDF export support
+    v1.0.0 - Initial release
+.PRIVATEDATA
+#>
+
 <#
 .SYNOPSIS
     Azure Local Inventory Web Server
