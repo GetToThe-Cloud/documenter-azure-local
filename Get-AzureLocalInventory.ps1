@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 1.1.135
+.VERSION 1.1.136
 .GUID a3f7b2c1-4d8e-4f6a-9b0c-1e2d3f4a5b6c
 .AUTHOR Alex ter Neuzen
 .COMPANYNAME GetToTheCloud
-.COPYRIGHT (c) 2025 Alex ter Neuzen. All rights reserved.
+.COPYRIGHT (c) 2026 Alex ter Neuzen. All rights reserved.
 .TAGS Azure AzureLocal AzureStackHCI Inventory HCI Arc
 .LICENSEURI https://github.com/GetToThe-Cloud/documenter-azure-local/blob/main/LICENSE
 .PROJECTURI https://github.com/GetToThe-Cloud/documenter-azure-local
@@ -28,7 +28,7 @@
 #>
 
 # Script version
-$script:Version = "1.1.135"
+$script:Version = "1.1.136"
 
 # Progress tracking
 $script:CollectionProgress = @{
