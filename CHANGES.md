@@ -4,7 +4,7 @@ All notable changes to the Azure Local Inventory Dashboard are documented in thi
 
 ---
 
-## [1.1.124] - 2025-07-16
+## [1.1.124] - 2026-03-13
 
 ### Added
 
