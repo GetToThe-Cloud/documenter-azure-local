@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 <#PSScriptInfo
-.VERSION 1.1.135
+.VERSION 1.2.0
 .GUID b4e8c3d2-5f9a-4e7b-8c1d-2f3e4a5b6c7d
 .AUTHOR Alex ter Neuzen
 .COMPANYNAME GetToTheCloud
@@ -13,7 +13,8 @@
 .REQUIREDSCRIPTS Get-AzureLocalInventory.ps1
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
-    v1.1.136 - Changed filtering for OSSku to look for "Azure Stack HCI"
+    v1.2.0 - Security hardening: removed wildcard CORS, Host/Origin validation, consent-based module install, POST-only login endpoint
+    v1.1.135 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.124 - Cross-subscription scanning, executive PDF export support
     v1.0.0 - Initial release
 .PRIVATEDATA
@@ -59,8 +60,13 @@ $requiredModules = @(
 
 foreach ($module in $requiredModules) {
     if (-not (Get-Module -ListAvailable -Name $module)) {
-        Write-Host "⚠️  Module $module not found. Installing..." -ForegroundColor Yellow
-        Install-Module -Name $module -Force -Scope CurrentUser -AllowClobber
+        Write-Host "⚠️  Module $module not found." -ForegroundColor Yellow
+        $consent = Read-Host "Install $module from the PowerShell Gallery (CurrentUser scope)? [y/N]"
+        if ($consent -notmatch '^[Yy]') {
+            Write-Error "Required module $module is not installed. Install it manually with: Install-Module -Name $module -Scope CurrentUser"
+            exit 1
+        }
+        Install-Module -Name $module -Repository PSGallery -Scope CurrentUser -Force
     }
     Import-Module $module -ErrorAction SilentlyContinue
 }
@@ -127,6 +133,30 @@ try {
         
         Write-Host "$(Get-Date -Format 'HH:mm:ss') $method $path" -ForegroundColor Gray
         
+        # Reject requests not addressed to localhost (DNS-rebinding defense)
+        # and cross-origin requests from other websites (CSRF defense).
+        $allowedHosts = @('localhost', '127.0.0.1', '::1', '[::1]')
+        $originHeader = $request.Headers['Origin']
+        $originAllowed = $true
+        if ($originHeader -and $originHeader -ne 'null') {
+            try {
+                $originUri = [Uri]$originHeader
+                $originAllowed = ($allowedHosts -contains $originUri.Host) -and ($originUri.Port -eq $Port)
+            } catch {
+                $originAllowed = $false
+            }
+        }
+        if (($allowedHosts -notcontains $request.Url.Host) -or (-not $originAllowed)) {
+            Write-Host "  ⛔ Rejected request (host: $($request.Url.Host), origin: $originHeader)" -ForegroundColor Red
+            $response.StatusCode = 403
+            $forbidden = [System.Text.Encoding]::UTF8.GetBytes('{"error":"Forbidden"}')
+            $response.ContentType = 'application/json'
+            $response.ContentLength64 = $forbidden.Length
+            $response.OutputStream.Write($forbidden, 0, $forbidden.Length)
+            $response.Close()
+            continue
+        }
+        
         # Content type and response
         $content = ""
         $contentType = "text/html; charset=utf-8"
@@ -177,12 +207,17 @@ try {
             }
             
             '^/api/auth/login$' {
-                try {
-                    Connect-AzAccount -UseDeviceAuthentication | Out-Null
-                    $script:IsAuthenticated = $true
-                    $content = @{ success = $true; message = "Authentication successful" } | ConvertTo-Json
-                } catch {
-                    $content = @{ success = $false; message = $_.Exception.Message } | ConvertTo-Json
+                if ($method -ne 'POST') {
+                    $response.StatusCode = 405
+                    $content = @{ success = $false; message = "Method not allowed" } | ConvertTo-Json
+                } else {
+                    try {
+                        Connect-AzAccount -UseDeviceAuthentication | Out-Null
+                        $script:IsAuthenticated = $true
+                        $content = @{ success = $true; message = "Authentication successful" } | ConvertTo-Json
+                    } catch {
+                        $content = @{ success = $false; message = $_.Exception.Message } | ConvertTo-Json
+                    }
                 }
                 $contentType = "application/json"
             }
@@ -271,11 +306,10 @@ try {
             }
         }
         
-        # Send response
+        # Send response (same-origin only; no CORS header on purpose)
         $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
         $response.ContentLength64 = $buffer.Length
         $response.ContentType = $contentType
-        $response.Headers.Add("Access-Control-Allow-Origin", "*")
         $response.OutputStream.Write($buffer, 0, $buffer.Length)
         $response.Close()
     }

@@ -4,6 +4,35 @@ All notable changes to the Azure Local Inventory Dashboard are documented in thi
 
 ---
 
+## [1.2.0] - 2026-08-06
+
+### Security
+- **XSS fix (dashboard)**: all Azure-sourced values (cluster/node/VM/network names, resource groups, versions, statuses, error messages, WAF messages, explanations) are now HTML-escaped via a new `escapeHtml()` helper before being rendered with `innerHTML`
+- **JS injection fix**: inline `onclick` handlers that interpolated resource names into JavaScript strings were replaced with `data-*` attributes and a single delegated click listener
+- **CORS**: removed the `Access-Control-Allow-Origin: *` header from all API responses — the dashboard is same-origin and no longer readable by other websites open in the browser
+- **CSRF / DNS-rebinding defense**: every request is validated — the request host must be `localhost`/loopback and, when an `Origin` header is present, it must match `http://localhost:<port>`; anything else gets `403`
+- **Login endpoint**: `/api/auth/login` now accepts `POST` only, and the device-code login is no longer triggered automatically on page load — it requires an explicit click on the sign-in button
+- **Module install**: missing Az modules are no longer installed silently — the server asks for consent first, pins the repository to PSGallery, and no longer uses `-AllowClobber`
+- **Supply chain**: added Subresource Integrity (`integrity` + `crossorigin`) attributes to the jsPDF, jsPDF-AutoTable, and html2canvas CDN script tags
+
+---
+
+## [1.1.135] - 2026-03-20
+
+### Changed
+- Changed the filtering for Azure Stack HCI Github issue #1
+
+---
+
+## [1.1.130] - 2026-03-16
+
+### Changed
+- Graceful Ctrl+C shutdown: replaced blocking `GetContext()` with `GetContextAsync()` + 500 ms polling and a `CancelKeyPress` handler so the server stops immediately on Ctrl+C
+- PSGallery packaging: added `documenter-azure-local.psd1` module manifest and `documenter-azure-local.psm1` root module; `FunctionsToExport` declares `Get-AzureLocalInventory` and `Start-AzureLocalServer`
+- `Start-AzureLocalServer` refactored from a runnable script into an exported function; removed script-level `param`, shebang, and `PSScriptInfo` block
+
+---
+
 ## [1.1.124] - 2026-03-13
 
 ### Added

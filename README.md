@@ -70,10 +70,10 @@ The Azure Local Inventory Dashboard automatically scans and documents your Azure
    | **Az.ConnectedMachine** | 0.5.0+ | Arc-enabled servers, extensions, and licensing |
    | **Az.ArcGateway** | 0.1.0+ | Arc Gateway connectivity and management |
 
-   > **Note**: The script includes automatic module management. On first run, it will:
-   > - Install missing modules automatically
-   > - Update outdated modules to the latest versions
+   > **Note**: The script includes module management. On first run, it will:
+   > - Detect missing modules and **ask for your consent** before installing them from the PowerShell Gallery (CurrentUser scope)
    > - Verify all modules meet minimum version requirements
+   > - If you decline, the script exits and tells you how to install the module manually
 
 ### Azure Requirements
 
@@ -441,6 +441,10 @@ The solution consists of three main layers working together to provide a compreh
 
 **Security Features:**
 - Localhost-only binding (not accessible from external networks)
+- Host header validation on every request (DNS-rebinding defense)
+- Origin header validation — cross-origin requests from other websites are rejected with `403`
+- No CORS headers — the API is same-origin only
+- Login endpoint accepts `POST` only; device-code sign-in requires an explicit user click
 - Azure AD authentication required
 - No credential storage or transmission
 - Session-based context management
@@ -719,6 +723,12 @@ pwsh Start-AzureLocalServer.ps1 -Port 8082
 ## Security Notes
 
 - ✅ **Localhost Only**: The server runs on localhost (127.0.0.1) and is not accessible from external networks
+- ✅ **Request Validation**: Every request is checked — the host must be localhost/loopback and any `Origin` header must match the dashboard's own origin; other requests receive `403` (defends against CSRF and DNS rebinding)
+- ✅ **Same-Origin API**: No CORS headers are emitted — other websites open in your browser cannot read the inventory API
+- ✅ **Output Encoding**: All Azure-sourced values (resource names, statuses, versions, error messages) are HTML-escaped before rendering, preventing XSS from maliciously named resources
+- ✅ **Subresource Integrity**: Third-party CDN scripts (jsPDF, html2canvas) are pinned with SRI hashes — a tampered CDN file will not execute
+- ✅ **Explicit Sign-In**: The Azure device-code login only starts when you click the sign-in button, never automatically
+- ✅ **Consent-Based Module Install**: Missing Az modules are only installed from PSGallery after you approve
 - ✅ **Azure AD Authentication**: All Azure access requires proper authentication through Az PowerShell
 - ✅ **No Credential Storage**: No credentials are stored or transmitted by the application
 - ✅ **Read-Only Operations**: The tool only performs read operations, no modifications to Azure resources
@@ -735,11 +745,11 @@ pwsh Start-AzureLocalServer.ps1 -Port 8082
 
 ## Version and Changelog
 
-**Current Version**: 1.1.124
+**Current Version**: 1.1.135
 
 See [CHANGES.md](CHANGES.md) for the full changelog.
 
-### Features in v1.1.124
+### Features in v1.1.130
 - ✅ **Cross-subscription scanning** across all Azure subscriptions
 - ✅ **Cluster-level Azure Hybrid Benefit** detection via `softwareAssuranceProperties`
 - ✅ **VM-to-cluster mapping** via logical network subnet prefix matching

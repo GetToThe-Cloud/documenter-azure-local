@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 1.1.136
+.VERSION 1.2.0
 .GUID a3f7b2c1-4d8e-4f6a-9b0c-1e2d3f4a5b6c
 .AUTHOR Alex ter Neuzen
 .COMPANYNAME GetToTheCloud
@@ -12,6 +12,7 @@
 .REQUIREDSCRIPTS
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
+    v1.2.0 - Security hardening release (dashboard XSS fixes, server request validation)
     v1.1.135 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.130 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.124 - Cross-subscription scanning, cluster-level AHB detection, VM-to-cluster mapping via logical network, executive PDF export
@@ -28,7 +29,7 @@
 #>
 
 # Script version
-$script:Version = "1.1.136"
+$script:Version = "1.2.0"
 
 # Progress tracking
 $script:CollectionProgress = @{

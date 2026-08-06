@@ -1,12 +1,37 @@
 // Azure Local Inventory - Client Application
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.2.0';
 console.log(`🚀 Azure Local Inventory app.js loaded - Version ${APP_VERSION}`);
 
 let inventoryData = null;
 let wafConfig = null;
 
 console.log('⏳ WAF configuration will be loaded from server...');
+
+// Escape untrusted values (Azure resource names etc.) before inserting into HTML
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+const esc = escapeHtml;
+
+// Delegated click handling avoids injecting data into inline onclick attributes
+document.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-action]');
+    if (!target) return;
+    event.preventDefault();
+    switch (target.dataset.action) {
+        case 'filter-cluster': filterNodesByCluster(target.dataset.name); break;
+        case 'show-node': showNodeExtensions(target.dataset.name); break;
+        case 'show-section': showSection(target.dataset.section); break;
+        case 'show-subnets': showSubnetModal(parseInt(target.dataset.index, 10)); break;
+    }
+});
 
 // Load WAF configuration from server
 async function loadWAFConfiguration() {
@@ -56,17 +81,16 @@ async function checkAuthStatus() {
         if (data.authenticated) {
             console.log('✅ Authenticated as:', data.context.account);
             authStatusDiv.className = 'auth-status authenticated';
-            authStatusDiv.innerHTML = `✓ Connected to Azure as <strong>${data.context.account}</strong> | Subscription: <strong>${data.context.subscription}</strong>`;
+            authStatusDiv.innerHTML = `✓ Connected to Azure as <strong>${esc(data.context.account)}</strong> | Subscription: <strong>${esc(data.context.subscription)}</strong>`;
             
             document.getElementById('authRequired').style.display = 'none';
             await loadInventoryData();
         } else {
-            console.log('⚠️ Not authenticated - requesting login');
+            console.log('⚠️ Not authenticated - user action required');
             authStatusDiv.className = 'auth-status not-authenticated';
-            authStatusDiv.innerHTML = '⚠ Not authenticated with Azure. Initiating login...';
+            authStatusDiv.innerHTML = '⚠ Not authenticated with Azure. Click the sign-in button below to start the device login.';
             
             document.getElementById('authRequired').style.display = 'flex';
-            await requestAzureLogin();
         }
     } catch (error) {
         console.error('❌ Error checking auth status:', error);
@@ -95,7 +119,7 @@ async function requestAzureLogin() {
             await checkAuthStatus();
         } else {
             authStatusDiv.className = 'auth-status not-authenticated';
-            authStatusDiv.innerHTML = `⚠ Authentication required. ${data.message || 'Please sign in to Azure.'}`;
+            authStatusDiv.innerHTML = `⚠ Authentication required. ${esc(data.message) || 'Please sign in to Azure.'}`;
         }
     } catch (error) {
         console.error('Error requesting Azure login:', error);
@@ -321,13 +345,13 @@ function convertToHTML(text) {
         });
         
         if (regularText) {
-            html += `<p>${regularText}</p>`;
+            html += `<p>${esc(regularText)}</p>`;
         }
         
         if (isList && listItems.length > 0) {
             html += '<ul>';
             listItems.forEach(item => {
-                html += `<li>${item}</li>`;
+                html += `<li>${esc(item)}</li>`;
             });
             html += '</ul>';
         }
@@ -379,7 +403,7 @@ function renderStatusChart(containerId, statusData, title) {
         const percentage = total > 0 ? (count / total * 100).toFixed(1) : 0;
         html += `
             <div class="chart-bar-item">
-                <div class="chart-bar-label">${status}: ${count} (${percentage}%)</div>
+                <div class="chart-bar-label">${esc(status)}: ${esc(count)} (${percentage}%)</div>
                 <div class="chart-bar">
                     <div class="chart-bar-fill" style="width: ${percentage}%"></div>
                 </div>
@@ -408,7 +432,7 @@ function renderVMsByClusterChart(vmsByCluster) {
         const percentage = maxVMs > 0 ? (count / maxVMs * 100).toFixed(1) : 0;
         html += `
             <div class="chart-bar-item">
-                <div class="chart-bar-label">${cluster}: ${count} VMs</div>
+                <div class="chart-bar-label">${esc(cluster)}: ${esc(count)} VMs</div>
                 <div class="chart-bar">
                     <div class="chart-bar-fill" style="width: ${percentage}%"></div>
                 </div>
@@ -437,19 +461,20 @@ function renderClusters() {
     html += '<th>Software Version</th><th>Nodes</th><th>VMs</th><th>Last Sync</th></tr></thead><tbody>';
     
     clusters.forEach(cluster => {
+        const clusterName = esc(cluster.name);
         const nodeCountText = cluster.nodeCount > 0 
-            ? `<a href="#" onclick="filterNodesByCluster('${cluster.name}'); return false;" class="clickable-link">${cluster.nodeCount}</a>`
-            : cluster.nodeCount;
+            ? `<a href="#" data-action="filter-cluster" data-name="${clusterName}" class="clickable-link">${esc(cluster.nodeCount)}</a>`
+            : esc(cluster.nodeCount);
         
         html += '<tr>';
-        html += `<td><strong><a href="#" onclick="filterNodesByCluster('${cluster.name}'); return false;" class="clickable-link">${cluster.name}</a></strong></td>`;
-        html += `<td>${cluster.resourceGroup}</td>`;
-        html += `<td>${cluster.location}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(cluster.status)}">${cluster.status}</span></td>`;
-        html += `<td>${cluster.softwareVersion}</td>`;
+        html += `<td><strong><a href="#" data-action="filter-cluster" data-name="${clusterName}" class="clickable-link">${clusterName}</a></strong></td>`;
+        html += `<td>${esc(cluster.resourceGroup)}</td>`;
+        html += `<td>${esc(cluster.location)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(cluster.status)}">${esc(cluster.status)}</span></td>`;
+        html += `<td>${esc(cluster.softwareVersion)}</td>`;
         html += `<td>${nodeCountText}</td>`;
-        html += `<td>${cluster.vmCount}</td>`;
-        html += `<td>${formatDate(cluster.lastSyncTimestamp)}</td>`;
+        html += `<td>${esc(cluster.vmCount)}</td>`;
+        html += `<td>${esc(formatDate(cluster.lastSyncTimestamp))}</td>`;
         html += '</tr>';
     });
     
@@ -489,19 +514,19 @@ function renderNodes() {
         const workloadText = workload.length > 0 ? workload.join(', ') : 'None';
         
         html += '<tr>';
-        html += `<td><strong><a href="#" onclick="showNodeExtensions('${node.name}'); return false;" class="clickable-link" title="Click to view extensions">${node.name}</a></strong></td>`;
-        html += `<td><a href="#" onclick="showSection('clusters'); return false;" class="clickable-link">${node.clusterName}</a></td>`;
-        html += `<td><span class="badge badge-${getStatusColor(node.status)}">${node.status}</span></td>`;
-        html += `<td>${node.manufacturer || 'Unknown'}</td>`;
-        html += `<td>${node.model || 'Unknown'}</td>`;
-        html += `<td>${node.serialNumber || 'Unknown'}</td>`;
-        html += `<td>${node.physicalCores || 'Unknown'}</td>`;
-        html += `<td>${node.memoryGB || 'Unknown'}</td>`;
-        html += `<td>${node.solutionVersion || 'Unknown'}</td>`;
-        html += `<td>${formatDate(node.lastUpdated) || 'Unknown'}</td>`;
-        html += `<td>${workloadText}</td>`;
-        html += `<td>${node.agentVersion}</td>`;
-        html += `<td>${node.location}</td>`;
+        html += `<td><strong><a href="#" data-action="show-node" data-name="${esc(node.name)}" class="clickable-link" title="Click to view extensions">${esc(node.name)}</a></strong></td>`;
+        html += `<td><a href="#" data-action="show-section" data-section="clusters" class="clickable-link">${esc(node.clusterName)}</a></td>`;
+        html += `<td><span class="badge badge-${getStatusColor(node.status)}">${esc(node.status)}</span></td>`;
+        html += `<td>${esc(node.manufacturer || 'Unknown')}</td>`;
+        html += `<td>${esc(node.model || 'Unknown')}</td>`;
+        html += `<td>${esc(node.serialNumber || 'Unknown')}</td>`;
+        html += `<td>${esc(node.physicalCores || 'Unknown')}</td>`;
+        html += `<td>${esc(node.memoryGB || 'Unknown')}</td>`;
+        html += `<td>${esc(node.solutionVersion || 'Unknown')}</td>`;
+        html += `<td>${esc(formatDate(node.lastUpdated) || 'Unknown')}</td>`;
+        html += `<td>${esc(workloadText)}</td>`;
+        html += `<td>${esc(node.agentVersion)}</td>`;
+        html += `<td>${esc(node.location)}</td>`;
         html += '</tr>';
     });
     
@@ -524,9 +549,9 @@ function renderVersions() {
             
             agentVersions.forEach(agent => {
                 html += '<tr>';
-                html += `<td><strong>${agent.version}</strong></td>`;
-                html += `<td>${agent.nodeCount}</td>`;
-                html += `<td>${agent.nodes.join(', ')}</td>`;
+                html += `<td><strong>${esc(agent.version)}</strong></td>`;
+                html += `<td>${esc(agent.nodeCount)}</td>`;
+                html += `<td>${esc(agent.nodes.join(', '))}</td>`;
                 html += '</tr>';
             });
             
@@ -548,11 +573,11 @@ function renderVersions() {
             
             softwareVersions.forEach(software => {
                 html += '<tr>';
-                html += `<td><strong>${software.osName}</strong></td>`;
-                html += `<td>${software.osSku || 'N/A'}</td>`;
-                html += `<td>${software.version}</td>`;
-                html += `<td>${software.nodeCount}</td>`;
-                html += `<td>${software.nodes.join(', ')}</td>`;
+                html += `<td><strong>${esc(software.osName)}</strong></td>`;
+                html += `<td>${esc(software.osSku || 'N/A')}</td>`;
+                html += `<td>${esc(software.version)}</td>`;
+                html += `<td>${esc(software.nodeCount)}</td>`;
+                html += `<td>${esc(software.nodes.join(', '))}</td>`;
                 html += '</tr>';
             });
             
@@ -580,17 +605,17 @@ function renderNetworks() {
     
     networks.forEach((network, index) => {
         html += '<tr>';
-        html += `<td><strong>${network.name}</strong></td>`;
-        html += `<td>${network.clusterName}</td>`;
-        html += `<td>${network.resourceGroup}</td>`;
-        html += `<td>${network.vmSwitchName}</td>`;
+        html += `<td><strong>${esc(network.name)}</strong></td>`;
+        html += `<td>${esc(network.clusterName)}</td>`;
+        html += `<td>${esc(network.resourceGroup)}</td>`;
+        html += `<td>${esc(network.vmSwitchName)}</td>`;
         html += `<td>${network.dhcpEnabled ? '✓ Yes' : '✗ No'}</td>`;
         if (network.subnets && network.subnets.length > 0) {
-            html += `<td><a href="#" onclick="showSubnetModal(${index}); return false;" class="subnet-link">${network.subnets.length} subnet(s) - View Details</a></td>`;
+            html += `<td><a href="#" data-action="show-subnets" data-index="${index}" class="subnet-link">${network.subnets.length} subnet(s) - View Details</a></td>`;
         } else {
             html += `<td>0 subnets</td>`;
         }
-        html += `<td><span class="badge badge-${getStatusColor(network.provisioningState)}">${network.provisioningState}</span></td>`;
+        html += `<td><span class="badge badge-${getStatusColor(network.provisioningState)}">${esc(network.provisioningState)}</span></td>`;
         html += '</tr>';
     });
     
@@ -610,9 +635,9 @@ function showSubnetModal(networkIndex) {
     
     network.subnets.forEach(subnet => {
         html += '<tr>';
-        html += `<td><strong>${subnet.name}</strong></td>`;
-        html += `<td>${subnet.addressPrefix}</td>`;
-        html += `<td>${subnet.vlan}</td>`;
+        html += `<td><strong>${esc(subnet.name)}</strong></td>`;
+        html += `<td>${esc(subnet.addressPrefix)}</td>`;
+        html += `<td>${esc(subnet.vlan)}</td>`;
         const ipPoolCount = subnet.ipPools ? subnet.ipPools.length : 0;
         html += `<td>${ipPoolCount} pool(s)</td>`;
         html += '</tr>';
@@ -658,12 +683,12 @@ function renderStoragePaths() {
     paths.forEach(path => {
         const resourceType = path.resourceType ? path.resourceType.split('/').pop() : 'N/A';
         html += '<tr>';
-        html += `<td><strong>${path.name}</strong></td>`;
-        html += `<td>${path.clusterName}</td>`;
-        html += `<td>${path.resourceGroup}</td>`;
-        html += `<td>${resourceType}</td>`;
-        html += `<td>${path.path}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(path.provisioningState)}">${path.provisioningState}</span></td>`;
+        html += `<td><strong>${esc(path.name)}</strong></td>`;
+        html += `<td>${esc(path.clusterName)}</td>`;
+        html += `<td>${esc(path.resourceGroup)}</td>`;
+        html += `<td>${esc(resourceType)}</td>`;
+        html += `<td>${esc(path.path)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(path.provisioningState)}">${esc(path.provisioningState)}</span></td>`;
         html += '</tr>';
     });
     
@@ -688,11 +713,11 @@ function renderCustomLocations() {
     
     locations.forEach(loc => {
         html += '<tr>';
-        html += `<td><strong>${loc.name}</strong></td>`;
-        html += `<td>${loc.clusterName}</td>`;
-        html += `<td>${loc.namespace}</td>`;
-        html += `<td>${loc.location}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(loc.provisioningState)}">${loc.provisioningState}</span></td>`;
+        html += `<td><strong>${esc(loc.name)}</strong></td>`;
+        html += `<td>${esc(loc.clusterName)}</td>`;
+        html += `<td>${esc(loc.namespace)}</td>`;
+        html += `<td>${esc(loc.location)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(loc.provisioningState)}">${esc(loc.provisioningState)}</span></td>`;
         html += '</tr>';
     });
     
@@ -717,13 +742,13 @@ function renderArcResourceBridges() {
     
     bridges.forEach(bridge => {
         html += '<tr>';
-        html += `<td><strong>${bridge.name}</strong></td>`;
-        html += `<td>${bridge.clusterName}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(bridge.status)}">${bridge.status}</span></td>`;
-        html += `<td>${bridge.version || 'N/A'}</td>`;
-        html += `<td>${bridge.distro || 'N/A'}</td>`;
-        html += `<td>${bridge.infrastructureConfig || 'N/A'}</td>`;
-        html += `<td>${bridge.location}</td>`;
+        html += `<td><strong>${esc(bridge.name)}</strong></td>`;
+        html += `<td>${esc(bridge.clusterName)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(bridge.status)}">${esc(bridge.status)}</span></td>`;
+        html += `<td>${esc(bridge.version || 'N/A')}</td>`;
+        html += `<td>${esc(bridge.distro || 'N/A')}</td>`;
+        html += `<td>${esc(bridge.infrastructureConfig || 'N/A')}</td>`;
+        html += `<td>${esc(bridge.location)}</td>`;
         html += '</tr>';
     });
     
@@ -748,10 +773,10 @@ function renderArcGateways() {
     
     gateways.forEach(gateway => {
         html += '<tr>';
-        html += `<td><strong>${gateway.name}</strong></td>`;
-        html += `<td>${gateway.resourceGroup}</td>`;
-        html += `<td>${gateway.location}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(gateway.provisioningState)}">${gateway.provisioningState}</span></td>`;
+        html += `<td><strong>${esc(gateway.name)}</strong></td>`;
+        html += `<td>${esc(gateway.resourceGroup)}</td>`;
+        html += `<td>${esc(gateway.location)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(gateway.provisioningState)}">${esc(gateway.provisioningState)}</span></td>`;
         html += '</tr>';
     });
     
@@ -781,14 +806,14 @@ function renderLicenses() {
         const cores = license.physicalCores || 'N/A';
         
         html += '<tr>';
-        html += `<td><strong><a href="#" onclick="showNodeExtensions('${license.machineName}'); return false;" class="clickable-link">${license.machineName}</a></strong></td>`;
-        html += `<td><a href="#" onclick="showSection('clusters'); return false;" class="clickable-link">${license.clusterName}</a></td>`;
-        html += `<td>${license.resourceGroup}</td>`;
-        html += `<td>${licenseTypes}</td>`;
-        html += `<td><span class="badge badge-success">${licenseStates}</span></td>`;
+        html += `<td><strong><a href="#" data-action="show-node" data-name="${esc(license.machineName)}" class="clickable-link">${esc(license.machineName)}</a></strong></td>`;
+        html += `<td><a href="#" data-action="show-section" data-section="clusters" class="clickable-link">${esc(license.clusterName)}</a></td>`;
+        html += `<td>${esc(license.resourceGroup)}</td>`;
+        html += `<td>${esc(licenseTypes)}</td>`;
+        html += `<td><span class="badge badge-success">${esc(licenseStates)}</span></td>`;
         html += `<td><span class="badge badge-${hasHybridBenefit ? 'success' : 'warning'}">${hasHybridBenefit ? '✓ Enabled' : '✗ Not Enabled'}</span></td>`;
-        html += `<td>${cores}</td>`;
-        html += `<td>${license.location}</td>`;
+        html += `<td>${esc(cores)}</td>`;
+        html += `<td>${esc(license.location)}</td>`;
         html += '</tr>';
     });
     
@@ -831,7 +856,7 @@ function renderCostAnalysis() {
     html += '<div class="overview-card">';
     html += '<div class="card-header">Current Monthly Cost</div>';
     html += `<div class="card-value">$${costAnalysis.estimatedMonthlyCost.toFixed(2)}</div>`;
-    html += `<div class="card-footer">Based on $${costAnalysis.corePrice}/core/month</div>`;
+    html += `<div class="card-footer">Based on $${esc(costAnalysis.corePrice)}/core/month</div>`;
     html += '</div>';
     
     // Current Yearly Cost Card
@@ -879,8 +904,8 @@ function renderCostAnalysis() {
         const monthlyCost = hasHybrid ? 0 : (cores * costAnalysis.corePrice);
         
         html += '<tr>';
-        html += `<td><strong><a href="#" onclick="showNodeExtensions('${node.name}'); return false;" class="clickable-link">${node.name}</a></strong></td>`;
-        html += `<td>${node.clusterName || 'N/A'}</td>`;
+        html += `<td><strong><a href="#" data-action="show-node" data-name="${esc(node.name)}" class="clickable-link">${esc(node.name)}</a></strong></td>`;
+        html += `<td>${esc(node.clusterName || 'N/A')}</td>`;
         html += `<td>${cores}</td>`;
         html += `<td><span class="badge badge-${hasHybrid ? 'success' : 'warning'}">${hasHybrid ? '✓ Enabled' : '✗ Not Enabled'}</span></td>`;
         html += `<td>$${monthlyCost.toFixed(2)}</td>`;
@@ -891,8 +916,8 @@ function renderCostAnalysis() {
     
     // Pricing Information Footer
     html += '<div class="pricing-footer">';
-    html += `<p><strong>Pricing as of ${costAnalysis.pricingDate}:</strong> Azure Local is charged at $${costAnalysis.corePrice} USD per physical core per month. `;
-    html += `With Azure Hybrid Benefit, customers can use existing Windows Server licenses with Software Assurance to run Azure Local at $${costAnalysis.corePriceWithHybridBenefit} per core (FREE). `;
+    html += `<p><strong>Pricing as of ${esc(costAnalysis.pricingDate)}:</strong> Azure Local is charged at $${esc(costAnalysis.corePrice)} USD per physical core per month. `;
+    html += `With Azure Hybrid Benefit, customers can use existing Windows Server licenses with Software Assurance to run Azure Local at $${esc(costAnalysis.corePriceWithHybridBenefit)} per core (FREE). `;
     html += `<a href="https://azure.microsoft.com/en-us/pricing/details/azure-local/" target="_blank">View official pricing</a></p>`;
     html += '</div>';
     
@@ -918,10 +943,10 @@ function showNodeExtensions(nodeName) {
     // Node basic info
     html += '<h3>Node Information</h3>';
     html += '<table class="data-table"><tbody>';
-    html += `<tr><td><strong>Cluster:</strong></td><td>${node.clusterName}</td></tr>`;
-    html += `<tr><td><strong>Status:</strong></td><td><span class="badge badge-${getStatusColor(node.status)}">${node.status}</span></td></tr>`;
-    html += `<tr><td><strong>Resource Group:</strong></td><td>${node.resourceGroup}</td></tr>`;
-    html += `<tr><td><strong>Location:</strong></td><td>${node.location}</td></tr>`;
+    html += `<tr><td><strong>Cluster:</strong></td><td>${esc(node.clusterName)}</td></tr>`;
+    html += `<tr><td><strong>Status:</strong></td><td><span class="badge badge-${getStatusColor(node.status)}">${esc(node.status)}</span></td></tr>`;
+    html += `<tr><td><strong>Resource Group:</strong></td><td>${esc(node.resourceGroup)}</td></tr>`;
+    html += `<tr><td><strong>Location:</strong></td><td>${esc(node.location)}</td></tr>`;
     html += '</tbody></table>';
     
     // Extensions
@@ -933,12 +958,12 @@ function showNodeExtensions(nodeName) {
         
         node.extensions.forEach(ext => {
             html += '<tr>';
-            html += `<td><strong>${ext.name}</strong></td>`;
-            html += `<td>${ext.type}</td>`;
-            html += `<td>${ext.publisher}</td>`;
-            html += `<td>${ext.version}</td>`;
-            html += `<td><span class="badge badge-${getStatusColor(ext.status)}">${ext.status}</span></td>`;
-            html += `<td><span class="badge badge-${ext.autoUpgrade === 'Enabled' ? 'success' : 'secondary'}">${ext.autoUpgrade}</span></td>`;
+            html += `<td><strong>${esc(ext.name)}</strong></td>`;
+            html += `<td>${esc(ext.type)}</td>`;
+            html += `<td>${esc(ext.publisher)}</td>`;
+            html += `<td>${esc(ext.version)}</td>`;
+            html += `<td><span class="badge badge-${getStatusColor(ext.status)}">${esc(ext.status)}</span></td>`;
+            html += `<td><span class="badge badge-${ext.autoUpgrade === 'Enabled' ? 'success' : 'secondary'}">${esc(ext.autoUpgrade)}</span></td>`;
             html += '</tr>';
         });
         
@@ -956,9 +981,9 @@ function showNodeExtensions(nodeName) {
         
         node.licenses.forEach(lic => {
             html += '<tr>';
-            html += `<td><strong>${lic.type}</strong></td>`;
-            html += `<td><span class="badge badge-success">${lic.state}</span></td>`;
-            html += `<td>${lic.edition || lic.assignedDate || 'N/A'}</td>`;
+            html += `<td><strong>${esc(lic.type)}</strong></td>`;
+            html += `<td><span class="badge badge-success">${esc(lic.state)}</span></td>`;
+            html += `<td>${esc(lic.edition || lic.assignedDate || 'N/A')}</td>`;
             html += '</tr>';
         });
         
@@ -994,13 +1019,13 @@ function renderImages() {
     
     images.forEach(image => {
         html += '<tr>';
-        html += `<td><strong>${image.name}</strong></td>`;
-        html += `<td>${image.clusterName}</td>`;
-        html += `<td>${image.osType}</td>`;
-        html += `<td>${image.sourceImageId}</td>`;
-        html += `<td>${image.version}</td>`;
-        html += `<td>${image.sizeInGB}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(image.provisioningState)}">${image.provisioningState}</span></td>`;
+        html += `<td><strong>${esc(image.name)}</strong></td>`;
+        html += `<td>${esc(image.clusterName)}</td>`;
+        html += `<td>${esc(image.osType)}</td>`;
+        html += `<td>${esc(image.sourceImageId)}</td>`;
+        html += `<td>${esc(image.version)}</td>`;
+        html += `<td>${esc(image.sizeInGB)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(image.provisioningState)}">${esc(image.provisioningState)}</span></td>`;
         html += '</tr>';
     });
     
@@ -1021,7 +1046,7 @@ function renderVirtualMachines() {
         const clusters = [...new Set(vms.map(vm => vm.clusterName))];
         clusterFilter.innerHTML = '<option value="">All Clusters</option>';
         clusters.forEach(cluster => {
-            clusterFilter.innerHTML += `<option value="${cluster}">${cluster}</option>`;
+            clusterFilter.innerHTML += `<option value="${esc(cluster)}">${esc(cluster)}</option>`;
         });
     }
     
@@ -1044,16 +1069,16 @@ function renderVMTable(vms) {
     
     vms.forEach(vm => {
         html += '<tr>';
-        html += `<td><strong>${vm.name}</strong></td>`;
-        html += `<td>${vm.clusterName || 'N/A'}</td>`;
-        html += `<td>${vm.resourceGroup || 'N/A'}</td>`;
-        html += `<td>${vm.ipAddress || 'N/A'}</td>`;
-        html += `<td>${vm.logicalNetwork || 'N/A'}</td>`;
-        html += `<td><span class="badge badge-${getPowerStateColor(vm.powerState)}">${vm.powerState}</span></td>`;
-        html += `<td>${vm.osType}</td>`;
-        html += `<td>${vm.cpuCount}</td>`;
-        html += `<td>${vm.memoryMB}</td>`;
-        html += `<td><span class="badge badge-${getStatusColor(vm.provisioningState)}">${vm.provisioningState}</span></td>`;
+        html += `<td><strong>${esc(vm.name)}</strong></td>`;
+        html += `<td>${esc(vm.clusterName || 'N/A')}</td>`;
+        html += `<td>${esc(vm.resourceGroup || 'N/A')}</td>`;
+        html += `<td>${esc(vm.ipAddress || 'N/A')}</td>`;
+        html += `<td>${esc(vm.logicalNetwork || 'N/A')}</td>`;
+        html += `<td><span class="badge badge-${getPowerStateColor(vm.powerState)}">${esc(vm.powerState)}</span></td>`;
+        html += `<td>${esc(vm.osType)}</td>`;
+        html += `<td>${esc(vm.cpuCount)}</td>`;
+        html += `<td>${esc(vm.memoryMB)}</td>`;
+        html += `<td><span class="badge badge-${getStatusColor(vm.provisioningState)}">${esc(vm.provisioningState)}</span></td>`;
         html += '</tr>';
     });
     
@@ -1749,7 +1774,7 @@ function renderWAF() {
     document.getElementById('wafSummary').innerHTML = `
         <p><strong>${passedChecks}</strong> checks passed, <strong>${warningChecks}</strong> warnings, <strong>${failedChecks}</strong> failed</p>
         <p>Your Azure Local deployment scores <strong>${score}%</strong> on the Well-Architected Framework assessment.</p>
-        <p>${scoreMessage}</p>
+        <p>${esc(scoreMessage)}</p>
     `;
     
     // Render each pillar
@@ -1925,9 +1950,9 @@ function renderWAFCategory(elementId, checks) {
             <div class="waf-check-item waf-check-${status}">
                 <div class="waf-check-icon">${icon}</div>
                 <div class="waf-check-content">
-                    <div class="waf-check-title">${check.name}</div>
-                    <div class="waf-check-desc">${check.message}</div>
-                    ${!check.pass && check.recommendation ? `<div class="waf-check-recommendation" style="font-size: 0.85em; color: var(--text-secondary); margin-top: 5px; font-style: italic;">💡 ${check.recommendation}</div>` : ''}
+                    <div class="waf-check-title">${esc(check.name)}</div>
+                    <div class="waf-check-desc">${esc(check.message)}</div>
+                    ${!check.pass && check.recommendation ? `<div class="waf-check-recommendation" style="font-size: 0.85em; color: var(--text-secondary); margin-top: 5px; font-style: italic;">💡 ${esc(check.recommendation)}</div>` : ''}
                 </div>
             </div>
         `;
