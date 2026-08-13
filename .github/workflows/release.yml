@@ -32,6 +32,20 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Prepare release notes from CHANGES.md
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $version = $env:VERSION
+          $changes = Get-Content ./CHANGES.md -Raw
+          $pattern = '(?ms)^##\s+\[?' + [regex]::Escape($version) + '\]?[^\r\n]*\r?\n.*?(?=^##\s+|\z)'
+          $match = [regex]::Match($changes, $pattern)
+          if (-not $match.Success) {
+            throw "No changelog section found for v$version."
+          }
+          Set-Content -Path ./release-notes.md -Value $match.Value.Trim() -NoNewline
+
       - name: Create release
         if: steps.check.outputs.exists == 'false'
         env:
@@ -40,4 +54,4 @@ jobs:
           gh release create "v${{ steps.version.outputs.version }}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "v${{ steps.version.outputs.version }}" \
-            --generate-notes
+            --notes-file ./release-notes.md

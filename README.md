@@ -767,7 +767,7 @@ pwsh Start-AzureLocalServer.ps1 -Port 8082
 
 **Current Version**: 1.2.0
 
-See [CHANGES.md](CHANGES.md) for the full changelog.
+See the [release information for v1.2.0](https://github.com/GetToThe-Cloud/documenter-azure-local/commits/v1.2.0) for the changelog.
 
 ### Features in v1.1.130
 - ✅ **Cross-subscription scanning** across all Azure subscriptions
