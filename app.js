@@ -1217,7 +1217,7 @@ function showSection(sectionId) {
 async function exportToPDF() {
     try {
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
+        const doc = new jsPDF('p', 'mm', 'a4');
         
         let yPos = 20;
         const pageWidth = doc.internal.pageSize.width;
@@ -1225,40 +1225,87 @@ async function exportToPDF() {
         const margin = 20;
         const contentWidth = pageWidth - margin * 2;
 
-        // Brand colors
-        const brandBlue = [0, 120, 212];   // Microsoft Azure blue
-        const darkGray = [50, 50, 50];
-        const lightGray = [240, 240, 240];
+        const brandColors = {
+            navy: [14, 42, 71],
+            navyMedium: [32, 68, 111],
+            azure: [31, 143, 255],
+            azureDark: [11, 95, 216],
+            paperTint: [246, 248, 251],
+            divider: [228, 234, 241],
+            muted: [91, 114, 144]
+        };
+        const brandBlue = brandColors.azure;
+        const darkGray = brandColors.navyMedium;
+        const lightGray = brandColors.paperTint;
         const white = [255, 255, 255];
 
-        // Shared table theme for a professional look
+        doc.setProperties({
+            title: 'Azure Local Inventory Report',
+            subject: 'Azure Local inventory and Well-Architected assessment',
+            author: 'GetToTheCloud',
+            creator: 'Azure Local Documenter'
+        });
+
         const tableTheme = {
-            styles: { fontSize: 8, cellPadding: 3 },
-            headStyles: {
-                fillColor: brandBlue,
-                textColor: white,
-                fontStyle: 'bold',
-                halign: 'left'
+            styles: {
+                font: 'helvetica',
+                textColor: brandColors.navy,
+                lineColor: brandColors.divider,
+                lineWidth: 0.1,
+                fontSize: 8,
+                cellPadding: 2.4,
+                overflow: 'linebreak'
             },
-            alternateRowStyles: { fillColor: [245, 249, 255] },
+            headStyles: {
+                fillColor: brandColors.navy,
+                textColor: white,
+                fontStyle: 'bold'
+            },
+            alternateRowStyles: { fillColor: brandColors.paperTint },
             margin: { left: margin, right: margin }
         };
 
-        // Helper: add page footer (page number + confidential line)
+        async function loadReportLogo() {
+            try {
+                const response = await fetch('gettothecloud-logo.webp', { cache: 'force-cache' });
+                if (!response.ok) return null;
+                const logoBlob = await response.blob();
+                const objectUrl = URL.createObjectURL(logoBlob);
+                try {
+                    const logoImage = await new Promise((resolve, reject) => {
+                        const image = new Image();
+                        image.onload = () => resolve(image);
+                        image.onerror = reject;
+                        image.src = objectUrl;
+                    });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = logoImage.naturalWidth;
+                    canvas.height = logoImage.naturalHeight;
+                    canvas.getContext('2d').drawImage(logoImage, 0, 0);
+                    return canvas.toDataURL('image/png');
+                } finally {
+                    URL.revokeObjectURL(objectUrl);
+                }
+            } catch (error) {
+                console.warn('Report logo could not be loaded:', error);
+                return null;
+            }
+        }
+
+        const logoDataUrl = await loadReportLogo();
+
+        // Helper: add page footer with page numbers
         function addPageFooter() {
             const totalPages = doc.internal.getNumberOfPages();
             for (let i = 1; i <= totalPages; i++) {
                 doc.setPage(i);
                 doc.setFontSize(7);
-                doc.setTextColor(150, 150, 150);
+                doc.setTextColor(...brandColors.muted);
                 doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
-                doc.text('CONFIDENTIAL - Azure Local Inventory Report', margin, pageHeight - 10);
-                // Thin top separator line
-                doc.setDrawColor(0, 120, 212);
+                doc.setDrawColor(...brandColors.azure);
                 doc.setLineWidth(0.5);
                 doc.line(margin, pageHeight - 14, pageWidth - margin, pageHeight - 14);
             }
-            // Reset text color
             doc.setTextColor(0, 0, 0);
         }
 
@@ -1285,17 +1332,27 @@ async function exportToPDF() {
         }
 
         // ===== COVER PAGE =====
-        // Blue header bar
-        doc.setFillColor(...brandBlue);
-        doc.rect(0, 0, pageWidth, 60, 'F');
-        doc.setFontSize(28);
-        doc.setTextColor(...white);
-        doc.text('Azure Local', margin, 30);
-        doc.setFontSize(16);
-        doc.text('Infrastructure Inventory Report', margin, 42);
-        doc.setTextColor(0, 0, 0);
+        doc.setFillColor(...brandColors.paperTint);
+        doc.rect(0, 0, pageWidth, pageHeight, 'F');
+        doc.setFillColor(...brandColors.navy);
+        doc.rect(0, 0, pageWidth, 4, 'F');
+        doc.setFillColor(...brandColors.azure);
+        doc.rect(0, 4, pageWidth, 1.5, 'F');
 
-        yPos = 80;
+        if (logoDataUrl) {
+            doc.addImage(logoDataUrl, 'PNG', margin, 16, 100, 20.5);
+        }
+
+        yPos = 70;
+        doc.setFontSize(24);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(...brandColors.navy);
+        doc.text('Azure Local', margin, yPos);
+        yPos += 10;
+        doc.setTextColor(...brandColors.azureDark);
+        doc.text('Infrastructure Inventory Report', margin, yPos);
+        yPos += 15;
+
         const summary = inventoryData.summary || {};
         const costAnalysisData = inventoryData.costAnalysis || {};
         const reportDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });

@@ -1,0 +1,9 @@
+# Local agent and standards files
+.github/agents/
+app.js.backup
+test.html
+STANDARDS-VERSION
+STANDARDS-VERSION.md
+DOCUMENTER-STANDARDS.md
+Documenter-standards.md
+AGENTS.md

@@ -15,6 +15,13 @@ All notable changes to the Azure Local Inventory Dashboard are documented in thi
 - **Module install**: missing Az modules are no longer installed silently — the server asks for consent first, pins the repository to PSGallery, and no longer uses `-AllowClobber`
 - **Supply chain**: added Subresource Integrity (`integrity` + `crossorigin`) attributes to the jsPDF, jsPDF-AutoTable, and html2canvas CDN script tags
 
+### Changed
+- **PDF footer**: removed the confidential marking; exported pages retain only the page number and visual divider.
+- **PDF export styling**: added the GetToTheCloud wordmark, branded paper-toned cover, navy and Azure section styling, and updated table defaults.
+- **Logo delivery**: packaged and served the wordmark as binary WebP data; the browser decodes it before converting it in memory for jsPDF.
+- **Ctrl+C shutdown**: replaced the blocking listener wait with an async, cancellation-aware loop and native console handler.
+- **Az module startup**: reused modules already loaded in the current PowerShell session and added a clear recovery message for conflicting assemblies.
+
 ---
 
 ## [1.1.135] - 2026-03-20

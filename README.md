@@ -41,7 +41,7 @@ The Azure Local Inventory Dashboard automatically scans and documents your Azure
 ### Analytics & Reporting
 - 📊 **Visual Analytics**: Interactive charts showing status distributions and resource placement
 - 🔍 **Search & Filter**: Quick search across all resource types with real-time filtering
-- 📄 **PDF Export**: Executive-ready reports with branded cover page, Azure-themed tables, section headers, page footers, and confidential marking (includes WAF assessment)
+- 📄 **PDF Export**: Executive-ready reports with the GetToTheCloud WebP wordmark, branded cover page, Azure-themed tables, section headers, and page numbers (includes WAF assessment)
 - ⚡ **Auto-Refresh**: Real-time inventory updates with manual refresh option
 - 🎯 **WAF Assessment**: Fully configurable Well-Architected Framework compliance checks
   - **NEW**: External configuration file (`waf-config.json`) for easy customization
@@ -124,11 +124,27 @@ pwsh --version
 # Should show 7.0.0 or higher
 ```
 
-### Step 2: Clone or Download Repository
+### Step 2: Choose an Installation Method
+
+#### Option A: Install from PowerShell Gallery (recommended)
+
+```powershell
+Install-Module -Name documenter-azure-local -Repository PSGallery -Scope CurrentUser
+Import-Module documenter-azure-local
+Start-AzureLocalServer
+```
+
+To update an existing gallery installation:
+
+```powershell
+Update-Module -Name documenter-azure-local
+```
+
+#### Option B: Clone or Download Repository
 
 ```bash
-git clone https://github.com/GetToThe-Cloud/AzureDocumenter.git
-cd AzureDocumenter/azurelocal-inventory
+git clone https://github.com/GetToThe-Cloud/documenter-azure-local.git
+cd documenter-azure-local
 ```
 
 Or download the files directly from the repository.
@@ -221,7 +237,7 @@ The web interface provides intuitive navigation through all inventory sections:
   - **Section headers** with colored bars for visual structure
   - Cost analysis with Azure Hybrid Benefit savings
   - Well-Architected Framework (WAF) assessment with scores and recommendations
-  - **Page footers** with page numbers and confidential marking
+  - **Page footers** with page numbers and a visual divider
 
 ## What Gets Documented
 
@@ -538,6 +554,10 @@ Update-Module -Name Az.StackHCI, Az.ConnectedMachine, Az.ArcGateway -Force
 Get-Module -Name Az.* -ListAvailable | Select-Object Name, Version
 ```
 
+**Error: "Assembly with same name is already loaded"**
+
+Close the current PowerShell session, open a new PowerShell 7 session, and run the server again. The startup script reuses modules already loaded in a session to avoid loading conflicting Az assemblies.
+
 ### Authentication Issues
 
 **Error: "Not authenticated to Azure" or context errors**
@@ -745,7 +765,7 @@ pwsh Start-AzureLocalServer.ps1 -Port 8082
 
 ## Version and Changelog
 
-**Current Version**: 1.1.135
+**Current Version**: 1.2.0
 
 See [CHANGES.md](CHANGES.md) for the full changelog.
 
@@ -753,7 +773,8 @@ See [CHANGES.md](CHANGES.md) for the full changelog.
 - ✅ **Cross-subscription scanning** across all Azure subscriptions
 - ✅ **Cluster-level Azure Hybrid Benefit** detection via `softwareAssuranceProperties`
 - ✅ **VM-to-cluster mapping** via logical network subnet prefix matching
-- ✅ **Executive PDF export** with branded cover page, Azure-themed tables, section headers, and page footers
+- ✅ **Executive PDF export** with the GetToTheCloud WebP wordmark, branded cover page, Azure-themed tables, section headers, and page numbers
+- ✅ **Immediate Ctrl+C shutdown** for the local inventory server
 - ✅ Complete Azure Local cluster and node inventory
 - ✅ Hardware specifications tracking (manufacturer, model, serial, cores, memory)
 - ✅ Virtual machine inventory with resource group, IP address, logical network, and cluster association

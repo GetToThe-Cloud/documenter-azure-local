@@ -33,6 +33,7 @@
         'index.html'
         'app.js'
         'styles.css'
+        'gettothecloud-logo.webp'
         'waf-config.json'
         'LICENSE'
         'README.md'

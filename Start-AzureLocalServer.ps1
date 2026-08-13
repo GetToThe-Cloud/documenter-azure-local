@@ -13,7 +13,7 @@
 .REQUIREDSCRIPTS Get-AzureLocalInventory.ps1
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
-    v1.2.0 - Security hardening: removed wildcard CORS, Host/Origin validation, consent-based module install, POST-only login endpoint
+    v1.2.0 - Security hardening, branded WebP PDF logo, native Ctrl+C shutdown, and removal of confidential PDF marking
     v1.1.135 - Changed filtering for OSSku to look for "Azure Stack HCI"
     v1.1.124 - Cross-subscription scanning, executive PDF export support
     v1.0.0 - Initial release
@@ -47,6 +47,52 @@ if ($currentVersion -lt $minimumVersion) {
 # Import required modules
 $ErrorActionPreference = "Stop"
 
+if (-not ('AzureLocalShutdownHandlerAsync' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Net;
+
+public static class AzureLocalShutdownHandlerAsync
+{
+    private static HttpListener listener;
+    private static volatile bool shutdownRequested;
+
+    public static ConsoleCancelEventHandler Register(HttpListener value)
+    {
+        listener = value;
+        shutdownRequested = false;
+        ConsoleCancelEventHandler handler = HandleCancelKeyPress;
+        Console.CancelKeyPress += handler;
+        return handler;
+    }
+
+    public static void Unregister(ConsoleCancelEventHandler handler)
+    {
+        Console.CancelKeyPress -= handler;
+        listener = null;
+        shutdownRequested = false;
+    }
+
+    public static bool IsShutdownRequested()
+    {
+        return shutdownRequested;
+    }
+
+    private static void HandleCancelKeyPress(object sender, ConsoleCancelEventArgs eventArgs)
+    {
+        eventArgs.Cancel = true;
+        shutdownRequested = true;
+        HttpListener currentListener = listener;
+        listener = null;
+        if (currentListener != null && currentListener.IsListening)
+        {
+            currentListener.Stop();
+        }
+    }
+}
+'@
+}
+
 Write-Host "🚀 Starting Azure Local Inventory Server..." -ForegroundColor Cyan
 Write-Host "✓ PowerShell Version: $currentVersion" -ForegroundColor Green
 
@@ -68,7 +114,19 @@ foreach ($module in $requiredModules) {
         }
         Install-Module -Name $module -Repository PSGallery -Scope CurrentUser -Force
     }
-    Import-Module $module -ErrorAction SilentlyContinue
+    $loadedModule = Get-Module -Name $module | Select-Object -First 1
+    if ($loadedModule) {
+        Write-Host "✓ $module already loaded (v$($loadedModule.Version))" -ForegroundColor Green
+        continue
+    }
+    try {
+        Import-Module $module -ErrorAction Stop
+    } catch {
+        if ($_.Exception.Message -match 'Assembly with same name is already loaded') {
+            throw "Could not load $module because a conflicting Az assembly is already loaded. Close this PowerShell session and start a new one before running the server again."
+        }
+        throw
+    }
 }
 
 # Import inventory collection module
@@ -114,17 +172,44 @@ Write-Host "🔐 Azure Authentication Status: $(if ($script:IsAuthenticated) { '
 
 # HTTP Listener
 $listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://localhost:$Port/")
-$listener.Start()
-
-Write-Host "🌐 Server started at http://localhost:$Port" -ForegroundColor Green
-Write-Host "📊 Access the Azure Local Inventory Dashboard in your browser" -ForegroundColor Cyan
-Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Gray
-Write-Host ""
-
+$cancelKeyPressHandler = [AzureLocalShutdownHandlerAsync]::Register($listener)
 try {
-    while ($listener.IsListening) {
-        $context = $listener.GetContext()
+    $listener.Prefixes.Add("http://localhost:$Port/")
+    $listener.Start()
+
+    Write-Host "🌐 Server started at http://localhost:$Port" -ForegroundColor Green
+    Write-Host "📊 Access the Azure Local Inventory Dashboard in your browser" -ForegroundColor Cyan
+    Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Gray
+    Write-Host ""
+
+    while ($listener.IsListening -and -not [AzureLocalShutdownHandlerAsync]::IsShutdownRequested()) {
+        try {
+            $contextTask = $listener.GetContextAsync()
+            while (-not $contextTask.Wait(250)) {
+                if ([AzureLocalShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                    break
+                }
+            }
+            if ([AzureLocalShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            $context = $contextTask.GetAwaiter().GetResult()
+        } catch [System.Net.HttpListenerException] {
+            if ([AzureLocalShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            throw
+        } catch [System.ObjectDisposedException] {
+            if ([AzureLocalShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            throw
+        } catch [System.AggregateException] {
+            if ([AzureLocalShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            throw
+        }
         $request = $context.Request
         $response = $context.Response
         
@@ -159,6 +244,7 @@ try {
         
         # Content type and response
         $content = ""
+        $responseBytes = $null
         $contentType = "text/html; charset=utf-8"
         
         # Route handling
@@ -186,6 +272,17 @@ try {
                 if (Test-Path $jsPath) {
                     $content = Get-Content $jsPath -Raw
                     $contentType = "application/javascript"
+                }
+            }
+
+            '^/gettothecloud-logo\.webp$' {
+                $logoPath = Join-Path $PSScriptRoot "gettothecloud-logo.webp"
+                if (Test-Path $logoPath) {
+                    $responseBytes = [System.IO.File]::ReadAllBytes($logoPath)
+                    $contentType = "image/webp"
+                } else {
+                    $response.StatusCode = 404
+                    $content = "Logo not found"
                 }
             }
             
@@ -307,16 +404,23 @@ try {
         }
         
         # Send response (same-origin only; no CORS header on purpose)
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
+        $buffer = if ($null -ne $responseBytes) {
+            $responseBytes
+        } else {
+            [System.Text.Encoding]::UTF8.GetBytes($content)
+        }
         $response.ContentLength64 = $buffer.Length
         $response.ContentType = $contentType
         $response.OutputStream.Write($buffer, 0, $buffer.Length)
-        $response.Close()
+        $response.OutputStream.Close()
     }
 }
 finally {
     Write-Host "`n🛑 Stopping server..." -ForegroundColor Yellow
-    $listener.Stop()
+    [AzureLocalShutdownHandlerAsync]::Unregister($cancelKeyPressHandler)
+    if ($listener.IsListening) {
+        $listener.Stop()
+    }
     $listener.Close()
     Write-Host "✓ Server stopped" -ForegroundColor Green
 }
